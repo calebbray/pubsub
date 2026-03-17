@@ -24,7 +24,7 @@ func TestAckUpdatesSubscriptionOffset(t *testing.T) {
 
 func TestPublishPassesCorrectOffsetToDeliver(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024))
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")
@@ -49,7 +49,7 @@ func TestPublishPassesCorrectOffsetToDeliver(t *testing.T) {
 
 func TestReplayDeliversAllEventsNotAcked(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024))
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")
@@ -84,7 +84,7 @@ func TestReplayDeliversAllEventsNotAcked(t *testing.T) {
 
 func TestReplayFromStart(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024))
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")

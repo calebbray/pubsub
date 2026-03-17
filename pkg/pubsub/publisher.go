@@ -13,11 +13,11 @@ import (
 type DeliverFunc func(e Event, offset uint64) error
 
 type Event struct {
-	ID          uuid.UUID
-	Type        string
-	ProducerId  string
-	Payload     []byte
-	PublishedAt time.Time
+	ID          uuid.UUID `json:"id"`
+	Type        string    `json:"type"`
+	ProducerId  string    `json:"producerId"`
+	Payload     []byte    `json:"payload"`
+	PublishedAt time.Time `json:"publishedAt"`
 }
 
 func NewEvent(et, producerId string, payload []byte) Event {
@@ -30,15 +30,22 @@ func NewEvent(et, producerId string, payload []byte) Event {
 	}
 }
 
+type BusOpts struct {
+	Dlq   *DeadLetterQueue
+	Retry RetryPolicy
+}
+
 type Bus struct {
+	BusOpts
 	registry *Registry
 	log      *eventlog.Log
 }
 
-func NewEventBus(r *Registry, l *eventlog.Log) *Bus {
+func NewEventBus(r *Registry, l *eventlog.Log, opts BusOpts) *Bus {
 	return &Bus{
 		registry: r,
 		log:      l,
+		BusOpts:  opts,
 	}
 }
 
@@ -57,7 +64,18 @@ func (b *Bus) Publish(e Event) error {
 
 	for _, sub := range subs {
 		if err := sub.DeliverFunc(e, offset); err != nil {
-			// do something if delivery fails?
+			delivered := false
+			for range b.Retry.MaxRetries {
+				time.Sleep(b.Retry.Delay)
+				if err = sub.DeliverFunc(e, offset); err == nil {
+					delivered = true
+					break
+				}
+			}
+
+			if !delivered && b.Dlq != nil {
+				b.Dlq.Append(e, err.Error(), sub.ID)
+			}
 		}
 	}
 	return nil

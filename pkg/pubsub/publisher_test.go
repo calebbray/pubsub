@@ -21,7 +21,7 @@ func TestPublishEvent(t *testing.T) {
 	_, err := r.Subscribe(n, e, deliverFuncCounter(DefaultDeliverFunc, &count))
 	require.NoError(t, err)
 
-	b := NewEventBus(r, utils.NewTestLog(1024))
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
 	require.NoError(t, b.Publish(testEvent))
 
 	assert.Equal(t, 1, count)
@@ -29,7 +29,7 @@ func TestPublishEvent(t *testing.T) {
 
 func TestPublishEventPersistsToLog(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024))
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")
@@ -56,7 +56,7 @@ func TestPublishEventPersistsToLog(t *testing.T) {
 
 func TestPublishEventWithNoSubscribers(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024))
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
 	e := "fake-event"
 	p := "publisher"
 	d := []byte("Hello, World")
@@ -77,7 +77,7 @@ func TestPublishEventWithNoSubscribers(t *testing.T) {
 
 func TestPublishToMultipleSubscribers(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024))
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")
@@ -99,7 +99,7 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 
 func TestPublishSubsciberFailsToOneSub(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024))
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")
