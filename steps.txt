@@ -15,8 +15,8 @@ Section 3 — Event Log
 ✅: Durability (fsync, crash recovery, reopening an existing log)
 
 Section 4 — RPC Layer
-❌: Message encoding (serializing RPC requests/responses)
-❌: Request/response correlation (matching responses to requests via ReqID)
+✅: Message encoding (serializing RPC requests/responses)
+✅: Request/response correlation (matching responses to requests via ReqID)
 ❌: Dispatch (routing method names to handlers)
 ❌: Admin methods (Status, Health, Metrics)
 
