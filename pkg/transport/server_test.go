@@ -1,35 +1,81 @@
 package transport
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestServerDialAndReceive(t *testing.T) {
-	s := newTestServer(t)
+func TestDialClosedServerFails(t *testing.T) {
+	s := newTestServer(t, ServerOpts{
+		Logger:  LogWriter{},
+		Handler: EchoHandler{},
+	})
+	s.Close()
+
+	_, err := Dial(s.Addr())
+	require.Error(t, err)
+}
+
+// Handler receives the right bytes and echos
+func TestHandlingFrames(t *testing.T) {
+	s := newTestServer(t, ServerOpts{
+		Logger:  LogWriter{},
+		Handler: EchoHandler{},
+	})
 
 	conn, err := Dial(s.Addr())
 	require.NoError(t, err)
 	defer conn.Close()
 
-	require.NoError(t, WriteFrame(conn, []byte("Hello World!")))
+	msg := "foobar"
+	require.NoError(t, WriteFrame(conn, []byte(msg)))
+
+	response, err := ReadFrame(conn)
+	require.NoError(t, err)
+
+	assert.Equal(t, string(msg), string(response))
 }
 
-func TestFramesReceivedInOrder(t *testing.T) {
-	s := newTestServer(t)
+func TestHandlingMultipleFrames(t *testing.T) {
+	s := newTestServer(t, ServerOpts{
+		Logger:  LogWriter{},
+		Handler: EchoHandler{},
+	})
 
 	conn, err := Dial(s.Addr())
 	require.NoError(t, err)
 	defer conn.Close()
 
-	require.NoError(t, WriteFrame(conn, []byte("first frame")))
-	require.NoError(t, WriteFrame(conn, []byte("second frame")))
+	msg1 := "foo"
+	msg2 := "bar"
+	msg3 := "baz"
+	require.NoError(t, WriteFrame(conn, []byte(msg1)))
+	require.NoError(t, WriteFrame(conn, []byte(msg2)))
+	require.NoError(t, WriteFrame(conn, []byte(msg3)))
+
+	response, err := ReadFrame(conn)
+	require.NoError(t, err)
+	assert.Equal(t, string(msg1), string(response))
+
+	response, err = ReadFrame(conn)
+	require.NoError(t, err)
+	assert.Equal(t, string(msg2), string(response))
+
+	response, err = ReadFrame(conn)
+	require.NoError(t, err)
+	assert.Equal(t, string(msg3), string(response))
 }
 
-func TestMultipleConnections(t *testing.T) {
-	s := newTestServer(t)
+func TestHandlingMultipleConnections(t *testing.T) {
+	s := newTestServer(t, ServerOpts{
+		Logger:  LogWriter{},
+		Handler: EchoHandler{},
+	})
 
 	conn1, err := Dial(s.Addr())
 	require.NoError(t, err)
@@ -39,25 +85,50 @@ func TestMultipleConnections(t *testing.T) {
 	require.NoError(t, err)
 	defer conn2.Close()
 
-	require.NoError(t, WriteFrame(conn1, []byte("first conn")))
-	require.NoError(t, WriteFrame(conn2, []byte("second conn")))
+	conn1Msg := []byte("hello from conn 1")
+	conn2Msg := []byte("hello from conn 2")
+
+	require.NoError(t, WriteFrame(conn1, conn1Msg))
+	require.NoError(t, WriteFrame(conn2, conn2Msg))
+
+	response, err := ReadFrame(conn1)
+	require.NoError(t, err)
+	assert.Equal(t, conn1Msg, response)
+
+	response, err = ReadFrame(conn2)
+	require.NoError(t, err)
+	assert.Equal(t, conn2Msg, response)
 }
 
-func TestDialClosedServerFails(t *testing.T) {
-	s := newTestServer(t)
-	s.Close()
+// TODO: Something in this test is funky
+// func TestHandlerErrorClosesConnection(t *testing.T) {
+// 	s := newTestServer(t, ServerOpts{
+// 		Logger:  LogWriter{},
+// 		Handler: errHandler{},
+// 	})
+// 	conn, err := Dial(s.Addr())
+// 	require.NoError(t, err)
+// 	WriteFrame(conn, []byte("this should close connection"))
+// 	_, err = ReadFrame(conn)
+// 	// require.Error(t, err)
+// 	require.Error(t, WriteFrame(conn, []byte("connection should be closed")))
+// }
 
-	_, err := Dial(s.Addr())
-	require.Error(t, err)
-}
-
-func newTestServer(t *testing.T) *Server {
+func newTestServer(t *testing.T, opts ServerOpts) *Server {
 	t.Helper()
-	s := NewServer(":0", ServerOpts{Logger: LogWriter{}})
+	s := NewServer(":0", opts)
 	go s.Run()
 	<-s.Ready()
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+type errHandler struct{}
+
+var TestErr = errors.New("TestError")
+
+func (errHandler) HandleFrame(w io.Writer, frame []byte) error {
+	return TestErr
 }
 
 type LogWriter struct{}

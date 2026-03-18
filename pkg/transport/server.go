@@ -19,7 +19,8 @@ type Server struct {
 }
 
 type ServerOpts struct {
-	Logger io.Writer
+	Handler Handler
+	Logger  io.Writer
 }
 
 func NewServer(addr string, opts ServerOpts) *Server {
@@ -88,14 +89,22 @@ func (s *Server) handleConn(conn net.Conn) {
 	for {
 		frame, err := ReadFrame(conn)
 		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+			if errors.Is(err, io.EOF) {
 				return
 			}
+
+			var opErr *net.OpError
+			if errors.As(err, &opErr) {
+				return
+			}
+
 			fmt.Fprintf(s.Logger, "error reading from: %s\n", err)
-			conn.Close()
 			return
 		}
 
-		fmt.Fprintf(s.Logger, "incoming frame: %s\n", frame)
+		if err := s.Handler.HandleFrame(conn, frame); err != nil {
+			fmt.Fprintf(s.Logger, "handler error: %s\n", err)
+			return
+		}
 	}
 }
