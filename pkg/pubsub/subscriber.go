@@ -8,11 +8,11 @@ import (
 )
 
 type Subscription struct {
-	ID            string
-	SubscriberId  string
-	EventType     string
-	DeliverFunc   DeliverFunc
-	lastAckOffset uint64
+	ID            string `json:"id"`
+	SubscriberId  string `json:"subscriberId"`
+	EventType     string `json:"eventType"`
+	LastAckOffset uint64 `json:"lastAckOffset"`
+	deliverFunc   DeliverFunc
 }
 
 func NewSubscription(subscriberId, eventType string, fn DeliverFunc) *Subscription {
@@ -20,7 +20,7 @@ func NewSubscription(subscriberId, eventType string, fn DeliverFunc) *Subscripti
 		ID:           uuid.New().String(),
 		SubscriberId: subscriberId,
 		EventType:    eventType,
-		DeliverFunc:  fn,
+		deliverFunc:  fn,
 	}
 }
 
@@ -61,6 +61,15 @@ func (r *Registry) Unsubscribe(subscriptionId string) error {
 	deleteSubscription(r.bySubscriber, subscriptionId)
 	delete(r.bySubscription, subscriptionId)
 	return nil
+}
+
+func (r *Registry) Restore(sub *Subscription) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.byEventType[sub.EventType] = append(r.byEventType[sub.EventType], sub)
+	r.bySubscriber[sub.SubscriberId] = append(r.bySubscriber[sub.SubscriberId], sub)
+	r.bySubscription[sub.ID] = sub
 }
 
 func deleteSubscription(m map[string][]*Subscription, id string) {
@@ -112,8 +121,23 @@ func (r *Registry) Ack(subscriptionId string, offset uint64) error {
 		return ErrSubscriptionNotFound
 	}
 
-	sub.lastAckOffset = offset
+	sub.LastAckOffset = offset
 	return nil
+}
+
+func (r *Registry) Reattach(subscriberId, eventType string, fn DeliverFunc) error {
+	subs, ok := r.bySubscriber[subscriberId]
+	if !ok {
+		return fmt.Errorf("can not reattach")
+	}
+
+	for _, sub := range subs {
+		if sub.EventType == eventType {
+			sub.deliverFunc = fn
+			return nil
+		}
+	}
+	return fmt.Errorf("subscription for subscriber %s and event %s not found", subscriberId, eventType)
 }
 
 func DefaultDeliverFunc(e Event, offset uint64) error {

@@ -19,7 +19,7 @@ func TestAckUpdatesSubscriptionOffset(t *testing.T) {
 	// no orchestrating of a bus / logging
 
 	require.NoError(t, r.Ack(sub.ID, 42069))
-	assert.Equal(t, uint64(42069), sub.lastAckOffset)
+	assert.Equal(t, uint64(42069), sub.LastAckOffset)
 }
 
 func TestPublishPassesCorrectOffsetToDeliver(t *testing.T) {

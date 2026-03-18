@@ -24,7 +24,7 @@ Section 5 — Pub/Sub
 ✅: Subscribe (registering interest in event types, storing subscriptions)
 ✅: Publish (accepting events, writing to log, fanning out to subscribers)
 ✅: Offsets and acks (tracking subscriber progress)
-❌: Retry and DLQ (redelivery on failure, dead letter queue)
+✅: Retry and DLQ (redelivery on failure, dead letter queue)
 
 Section 6 — Registry
 ❌: Subscription storage (persisting subscriptions to disk)

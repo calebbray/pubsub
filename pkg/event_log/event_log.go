@@ -24,22 +24,18 @@ type Log struct {
 func NewFileLog(path string) (*Log, error) {
 	l := &Log{}
 
-	var fp *os.File
-	var err error
-	info, err := os.Stat(path)
+	fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
-		fp, err = os.Create(path)
-		l.size = 0
-	} else {
-		fp, err = os.OpenFile(path, os.O_RDWR, 0o644)
-		l.size = uint64(info.Size())
+		return nil, err
 	}
 
+	info, err := fd.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("error opening log file: %w", err)
+		return nil, err
 	}
 
-	l.EventLogger = fp
+	l.EventLogger = fd
+	l.size = uint64(info.Size())
 	return l, nil
 }
 

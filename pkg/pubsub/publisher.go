@@ -63,11 +63,11 @@ func (b *Bus) Publish(e Event) error {
 	subs, _ := b.registry.GetSubscriptions(e.Type)
 
 	for _, sub := range subs {
-		if err := sub.DeliverFunc(e, offset); err != nil {
+		if err := sub.deliverFunc(e, offset); err != nil {
 			delivered := false
 			for range b.Retry.MaxRetries {
 				time.Sleep(b.Retry.Delay)
-				if err = sub.DeliverFunc(e, offset); err == nil {
+				if err = sub.deliverFunc(e, offset); err == nil {
 					delivered = true
 					break
 				}
@@ -92,7 +92,7 @@ func (b *Bus) Replay(subscriptionId string) error {
 	}
 
 	// create an iterator for the log
-	logs := eventlog.NewIterator(b.log, s.lastAckOffset)
+	logs := eventlog.NewIterator(b.log, s.LastAckOffset)
 
 	// publish unacknowledged events back to the subscriber
 	for logs.Next() {
@@ -100,7 +100,7 @@ func (b *Bus) Replay(subscriptionId string) error {
 		if err != nil {
 			return err
 		}
-		s.DeliverFunc(e, logs.Offset())
+		s.deliverFunc(e, logs.Offset())
 	}
 	return nil
 }
