@@ -17,8 +17,8 @@ Section 3 — Event Log
 Section 4 — RPC Layer
 ✅: Message encoding (serializing RPC requests/responses)
 ✅: Request/response correlation (matching responses to requests via ReqID)
-❌: Dispatch (routing method names to handlers)
-❌: Admin methods (Status, Health, Metrics)
+✅: Dispatch (routing method names to handlers)
+✅: Admin methods (Status, Health, Metrics)
 
 Section 5 — Pub/Sub
 ❌: Subscribe (registering interest in event types, storing subscriptions)
