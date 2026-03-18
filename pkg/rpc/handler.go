@@ -3,6 +3,7 @@ package rpc
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
@@ -69,6 +70,33 @@ func NewServer() *Server {
 	return s
 }
 
+func (s *Server) HandleFrame(w io.Writer, frame []byte) error {
+	msg, err := Decode(frame)
+	if err != nil {
+		msg.Kind = KindError
+		msg.Payload = []byte("internal server error")
+		return transport.WriteFrame(w, Encode(msg))
+	}
+
+	fn, ok := s.handlers[msg.Method]
+	if !ok {
+		msg.Kind = KindError
+		msg.Payload = []byte("no route associated with given method")
+		return transport.WriteFrame(w, Encode(msg))
+	}
+
+	response, err := fn(msg.Payload)
+	if err != nil {
+		msg.Kind = KindError
+		msg.Payload = fmt.Appendf(nil, "%s", err)
+		return transport.WriteFrame(w, Encode(msg))
+	}
+
+	msg.Kind = KindResponse
+	msg.Payload = response
+	return transport.WriteFrame(w, Encode(msg))
+}
+
 func (s *Server) HandleConn(conn net.Conn) {
 	defer conn.Close()
 	for {
@@ -77,37 +105,7 @@ func (s *Server) HandleConn(conn net.Conn) {
 			return
 		}
 
-		msg, err := Decode(frame)
-		if err != nil {
-			msg.Kind = KindError
-			msg.Payload = []byte("internal server error")
-			transport.WriteFrame(conn, Encode(msg))
-			// do something with the error?
-			continue
-		}
-
-		fn, ok := s.handlers[msg.Method]
-		if !ok {
-			msg.Kind = KindError
-			msg.Payload = []byte("no route associated with given method")
-			transport.WriteFrame(conn, Encode(msg))
-			continue
-		}
-
-		response, err := fn(msg.Payload)
-		if err != nil {
-			msg.Kind = KindError
-			msg.Payload = fmt.Appendf(nil, "%s", err)
-			transport.WriteFrame(conn, Encode(msg))
-			continue
-		}
-
-		msg.Kind = KindResponse
-		msg.Payload = response
-
-		if err := transport.WriteFrame(conn, Encode(msg)); err != nil {
-			continue
-		}
+		s.HandleFrame(conn, frame)
 	}
 }
 
