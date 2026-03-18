@@ -1,7 +1,7 @@
 package pubsub
 
 import (
-	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
@@ -11,13 +11,20 @@ type Subscription struct {
 	ID           string
 	SubscriberId string
 	EventType    string
+	DeliverFunc  DeliverFunc
 }
 
-func NewSubscription(subscriberId, eventType string) *Subscription {
+func DefaultDeliverFunc(e Event) error {
+	fmt.Println(e)
+	return nil
+}
+
+func NewSubscription(subscriberId, eventType string, fn DeliverFunc) *Subscription {
 	return &Subscription{
 		ID:           uuid.New().String(),
 		SubscriberId: subscriberId,
 		EventType:    eventType,
+		DeliverFunc:  fn,
 	}
 }
 
@@ -34,11 +41,15 @@ func NewRegistry() *Registry {
 	}
 }
 
-func (r *Registry) Subscribe(subscriberID, eventType string) (*Subscription, error) {
+func (r *Registry) Subscribe(subscriberID, eventType string, fn DeliverFunc) (*Subscription, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	s := NewSubscription(subscriberID, eventType)
+	if fn == nil {
+		fn = DefaultDeliverFunc
+	}
+
+	s := NewSubscription(subscriberID, eventType, fn)
 	r.byEventType[eventType] = append(r.byEventType[eventType], s)
 	r.bySubscriber[subscriberID] = append(r.bySubscriber[subscriberID], s)
 	return s, nil
