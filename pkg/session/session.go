@@ -9,20 +9,35 @@ import (
 	"pipelines/pkg/transport"
 
 	"github.com/google/uuid"
+	"golang.org/x/time/rate"
 )
 
 type Session struct {
 	net.Conn
-	sessionId uuid.UUID
-	createdAt time.Time
+	rateLimiter *rate.Limiter
+	sessionId   uuid.UUID
+	createdAt   time.Time
+	version     uint8
 }
 
-func New(conn net.Conn) *Session {
-	return &Session{
+type RateLimitOpts struct {
+	Limit     int
+	BurstSize int
+}
+
+func New(conn net.Conn, rlOpts *RateLimitOpts) *Session {
+	s := &Session{
 		Conn:      conn,
 		sessionId: uuid.New(),
 		createdAt: time.Now(),
 	}
+
+	if rlOpts != nil {
+		rl := rate.NewLimiter(rate.Limit(rlOpts.Limit), rlOpts.BurstSize)
+		s.rateLimiter = rl
+	}
+
+	return s
 }
 
 func (s *Session) Send(msg []byte) error {
@@ -41,16 +56,29 @@ func (s *Session) CreatedAt() time.Time {
 	return s.createdAt
 }
 
+func (s *Session) Version() int {
+	return int(s.version)
+}
+
+func (s *Session) Allow() bool {
+	if s.rateLimiter != nil {
+		return s.rateLimiter.Allow()
+	}
+	return true
+}
+
 type SessionHandler struct {
-	ValidToken string
-	Handler    transport.FrameHandler
+	ValidToken        string
+	SupportedVersions []uint8
+	RateLimit         *RateLimitOpts
+	Handler           transport.FrameHandler
 }
 
 func (h SessionHandler) HandleConn(conn net.Conn) {
 	defer conn.Close()
 
-	s := New(conn)
-	if err := s.ServerHandshake(h.ValidToken); err != nil {
+	s := New(conn, h.RateLimit)
+	if err := s.ServerHello(h.ValidToken, h.SupportedVersions); err != nil {
 		return
 	}
 
@@ -69,22 +97,26 @@ func (h SessionHandler) HandleConn(conn net.Conn) {
 			return
 		}
 
+		if !s.Allow() {
+			return
+		}
 		if err := h.Handler.HandleFrame(conn, frame); err != nil {
 			return
 		}
 	}
 }
 
-func Dial(addr, clientId, token string) (*Session, error) {
+func Dial(addr, clientId, token string, versions []uint8) (*Session, error) {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
 
-	s := New(conn)
-	if err := s.ClientHandshake(clientId, token); err != nil {
-		conn.Close()
+	s := New(conn, nil)
+
+	if err := s.ClientHello(clientId, token, versions); err != nil {
 		return nil, err
 	}
+
 	return s, nil
 }

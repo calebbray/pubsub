@@ -1,0 +1,33 @@
+Section 1 — Transport Layer
+✅: Framing (length-prefixed frames, ReadFrame/WriteFrame)
+✅: TCP Connections (listener, dial, accept loop)
+✅: Connection Handler (handler interface, echo, request/response)
+
+Section 2 — Session Layer
+✅: Session struct (connection identity, session ID generation)
+✅: Handshake (client sends identity + auth token, server validates)
+✅: Capability negotiation (client/server agree on protocol version)
+❌: Per-session rate limiting
+
+Section 3 — Event Log
+❌: Append-only log (write events to disk, sequential offsets)
+❌: Reading and replaying (read from offset, iterate entries)
+❌: Durability (fsync, crash recovery, reopening an existing log)
+
+Section 4 — RPC Layer
+❌: Message encoding (serializing RPC requests/responses)
+❌: Request/response correlation (matching responses to requests via ReqID)
+❌: Dispatch (routing method names to handlers)
+❌: Admin methods (Status, Health, Metrics)
+
+Section 5 — Pub/Sub
+❌: Subscribe (registering interest in event types, storing subscriptions)
+❌: Publish (accepting events, writing to log, fanning out to subscribers)
+❌: Offsets and acks (tracking subscriber progress)
+❌: Retry and DLQ (redelivery on failure, dead letter queue)
+
+Section 6 — Registry
+❌: Subscription storage (persisting subscriptions to disk)
+❌: Dataset/service metadata (storing and querying artifact pointers)
+❌: State projection (deriving latest version, last success/failure)
+❌: Query API (latest version of X, who subscribes to X, runs by correlation ID)
