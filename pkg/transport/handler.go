@@ -2,14 +2,19 @@ package transport
 
 import (
 	"io"
+	"net"
 )
 
-type Handler interface {
+type ConnHandler interface {
+	HandleConn(conn net.Conn)
+}
+
+type FrameHandler interface {
 	HandleFrame(w io.Writer, frame []byte) error
 }
 
-type EchoHandler struct{}
+type EchoFrameHandler struct{}
 
-func (h EchoHandler) HandleFrame(w io.Writer, frame []byte) error {
+func (h EchoFrameHandler) HandleFrame(w io.Writer, frame []byte) error {
 	return WriteFrame(w, frame)
 }

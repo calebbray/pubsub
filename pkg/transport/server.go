@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	// "pipelines/pkg/session"
 )
 
 type Server struct {
@@ -19,8 +20,9 @@ type Server struct {
 }
 
 type ServerOpts struct {
-	Handler Handler
-	Logger  io.Writer
+	Handler    ConnHandler
+	Logger     io.Writer
+	ValidToken string
 }
 
 func NewServer(addr string, opts ServerOpts) *Server {
@@ -84,27 +86,5 @@ func Dial(addr string) (net.Conn, error) {
 
 func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
-	defer conn.Close()
-
-	for {
-		frame, err := ReadFrame(conn)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return
-			}
-
-			var opErr *net.OpError
-			if errors.As(err, &opErr) {
-				return
-			}
-
-			fmt.Fprintf(s.Logger, "error reading from: %s\n", err)
-			return
-		}
-
-		if err := s.Handler.HandleFrame(conn, frame); err != nil {
-			fmt.Fprintf(s.Logger, "handler error: %s\n", err)
-			return
-		}
-	}
+	s.Handler.HandleConn(conn)
 }
