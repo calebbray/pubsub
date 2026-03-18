@@ -1,7 +1,8 @@
 package eventlog
 
 import (
-	"path"
+	"fmt"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,7 +10,7 @@ import (
 )
 
 func TestLogWriteRead(t *testing.T) {
-	l := createTestLog(t)
+	l := NewTestLog(1024)
 	defer l.Close()
 
 	msg := "foo"
@@ -23,7 +24,7 @@ func TestLogWriteRead(t *testing.T) {
 }
 
 func TestAppendMultipleLogs(t *testing.T) {
-	l := createTestLog(t)
+	l := NewTestLog(1024)
 	defer l.Close()
 
 	msg1 := []byte("foo")
@@ -56,7 +57,7 @@ func TestAppendMultipleLogs(t *testing.T) {
 }
 
 func TestReadingInvalidOffsetErrors(t *testing.T) {
-	l := createTestLog(t)
+	l := NewTestLog(1024)
 
 	_, err := l.Read(0)
 	require.Error(t, err)
@@ -68,11 +69,55 @@ func TestReadingInvalidOffsetErrors(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func createTestLog(t *testing.T) *Log {
-	t.Helper()
-	file := path.Join(t.TempDir(), "test.log")
+func NewTestLog(size int64) *Log {
+	return &Log{
+		EventLogger: &TestLog{
+			data: make([]byte, size),
+		},
+	}
+}
 
-	l, err := NewLog(file)
-	require.NoError(t, err)
-	return l
+type TestLog struct {
+	data []byte
+}
+
+func (l *TestLog) ReadAt(p []byte, offset int64) (n int, err error) {
+	if offset >= int64(len(l.data)) {
+		return 0, io.EOF
+	}
+
+	if offset < 0 {
+		return 0, fmt.Errorf("negative offset")
+	}
+
+	available := int64(len(l.data)) - offset
+	if int64(len(p)) < available {
+		n = len(p)
+	} else {
+		n = int(available)
+		err = io.EOF
+	}
+
+	copy(p[:n], l.data[offset:offset+int64(n)])
+	return n, err
+}
+
+func (l *TestLog) WriteAt(p []byte, offset int64) (n int, err error) {
+	if offset < 0 || offset > int64(len(l.data)) {
+		return 0, fmt.Errorf("invalid offset %d", offset)
+	}
+
+	remainingSpace := int64(len(l.data)) - offset
+	if int64(len(p)) > remainingSpace {
+		p = p[:remainingSpace]
+		err = io.EOF
+	}
+
+	copy(l.data[offset:], p)
+	n = len(p)
+	return n, err
+}
+
+func (l *TestLog) Close() error {
+	return nil
 }

@@ -4,15 +4,22 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 )
 
+type EventLogger interface {
+	io.ReaderAt
+	io.WriterAt
+	io.Closer
+}
+
 type Log struct {
-	file *os.File
+	EventLogger
 	size uint64
 }
 
-func NewLog(path string) (*Log, error) {
+func NewFileLog(path string) (*Log, error) {
 	l := &Log{}
 
 	var fp *os.File
@@ -30,7 +37,7 @@ func NewLog(path string) (*Log, error) {
 		return nil, fmt.Errorf("error opening log file: %w", err)
 	}
 
-	l.file = fp
+	l.EventLogger = fp
 	return l, nil
 }
 
@@ -41,7 +48,7 @@ func (l *Log) Append(data []byte) (offset uint64, err error) {
 
 	logStart := l.size
 
-	if _, err := l.file.WriteAt(buf, int64(l.size)); err != nil {
+	if _, err := l.EventLogger.WriteAt(buf, int64(l.size)); err != nil {
 		return 0, fmt.Errorf("error appending log to file: %w", err)
 	}
 
@@ -59,7 +66,7 @@ func (l *Log) Read(offset uint64) ([]byte, error) {
 
 	logLen := make([]byte, 4)
 
-	if _, err := l.file.ReadAt(logLen, int64(offset)); err != nil {
+	if _, err := l.EventLogger.ReadAt(logLen, int64(offset)); err != nil {
 		return nil, fmt.Errorf("error reading from log file: %w", err)
 	}
 
@@ -70,7 +77,7 @@ func (l *Log) Read(offset uint64) ([]byte, error) {
 	}
 
 	buf := make([]byte, n)
-	if _, err := l.file.ReadAt(buf, int64(offset+4)); err != nil {
+	if _, err := l.EventLogger.ReadAt(buf, int64(offset+4)); err != nil {
 		return nil, fmt.Errorf("error reading to buf: %w", err)
 	}
 
@@ -78,8 +85,8 @@ func (l *Log) Read(offset uint64) ([]byte, error) {
 }
 
 func (l *Log) Close() error {
-	if l.file != nil {
-		l.file.Close()
+	if l.EventLogger != nil {
+		l.EventLogger.Close()
 	}
 
 	return nil
