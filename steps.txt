@@ -27,7 +27,7 @@ Section 5 — Pub/Sub
 ✅: Retry and DLQ (redelivery on failure, dead letter queue)
 
 Section 6 — Registry
-❌: Subscription storage (persisting subscriptions to disk)
-❌: Dataset/service metadata (storing and querying artifact pointers)
+✅: Subscription storage (persisting subscriptions to disk)
+✅: Dataset/service metadata (storing and querying artifact pointers)
 ❌: State projection (deriving latest version, last success/failure)
 ❌: Query API (latest version of X, who subscribes to X, runs by correlation ID)
