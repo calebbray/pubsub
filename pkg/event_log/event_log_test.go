@@ -3,6 +3,7 @@ package eventlog
 import (
 	"fmt"
 	"io"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -69,6 +70,72 @@ func TestReadingInvalidOffsetErrors(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestSyncOnHealthyFile(t *testing.T) {
+	file := path.Join(t.TempDir(), "SyncTest")
+
+	log, err := NewFileLog(file)
+	require.NoError(t, err)
+	defer log.Close()
+
+	msgs := []string{"foo", "bar", "baz"}
+	fillLogs(t, log, msgs...)
+
+	require.NoError(t, log.Sync())
+}
+
+func TestPersistenceFileLog(t *testing.T) {
+	file := path.Join(t.TempDir(), "PersistenceTest")
+
+	log, err := NewFileLog(file)
+	require.NoError(t, err)
+
+	msgs := []string{"foo", "bar", "baz"}
+	fillLogs(t, log, msgs...)
+
+	require.NoError(t, log.Sync())
+	require.NoError(t, log.Close())
+	assert.Nil(t, log.EventLogger)
+
+	log, err = NewFileLog(file)
+	require.NoError(t, err)
+
+	data, err := log.Read(0)
+	require.NoError(t, err)
+
+	assert.Equal(t, msgs[0], string(data))
+}
+
+func TestReopenedFileAppends(t *testing.T) {
+	file := path.Join(t.TempDir(), "AppendAfterReopen")
+
+	log, err := NewFileLog(file)
+	require.NoError(t, err)
+
+	msgs := []string{"foo", "bar", "baz"}
+	fillLogs(t, log, msgs...)
+
+	require.NoError(t, log.Sync())
+	require.NoError(t, log.Close())
+	assert.Nil(t, log.EventLogger)
+
+	log, err = NewFileLog(file)
+	require.NoError(t, err)
+
+	msg := "last message"
+	_, err = log.Append([]byte(msg))
+	require.NoError(t, err)
+
+	msgs = append(msgs, msg)
+	i := NewIterator(log, 0)
+	idx := 0
+	for i.Next() {
+		assert.Equal(t, msgs[idx], string(i.Data()))
+		idx++
+	}
+
+	assert.NoError(t, i.Err())
+}
+
 func NewTestLog(size int64) *Log {
 	return &Log{
 		EventLogger: &TestLog{
@@ -119,5 +186,9 @@ func (l *TestLog) WriteAt(p []byte, offset int64) (n int, err error) {
 }
 
 func (l *TestLog) Close() error {
+	return nil
+}
+
+func (l *TestLog) Sync() error {
 	return nil
 }

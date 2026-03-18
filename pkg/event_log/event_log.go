@@ -12,6 +12,8 @@ type EventLogger interface {
 	io.ReaderAt
 	io.WriterAt
 	io.Closer
+
+	Sync() error
 }
 
 type Log struct {
@@ -84,10 +86,16 @@ func (l *Log) Read(offset uint64) ([]byte, error) {
 	return buf, nil
 }
 
+func (l *Log) Sync() error {
+	return l.EventLogger.Sync()
+}
+
 func (l *Log) Close() error {
 	if l.EventLogger != nil {
 		l.EventLogger.Close()
 	}
+
+	l.EventLogger = nil
 
 	return nil
 }
