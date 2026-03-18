@@ -21,7 +21,7 @@ Section 4 — RPC Layer
 ✅: Admin methods (Status, Health, Metrics)
 
 Section 5 — Pub/Sub
-❌: Subscribe (registering interest in event types, storing subscriptions)
+✅: Subscribe (registering interest in event types, storing subscriptions)
 ❌: Publish (accepting events, writing to log, fanning out to subscribers)
 ❌: Offsets and acks (tracking subscriber progress)
 ❌: Retry and DLQ (redelivery on failure, dead letter queue)
