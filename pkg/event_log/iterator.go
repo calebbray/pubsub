@@ -5,6 +5,7 @@ import "errors"
 type Iterator struct {
 	log     *Log
 	currOff uint64
+	prevOff uint64
 	currLog []byte
 	err     error
 }
@@ -17,6 +18,7 @@ func NewIterator(log *Log, startOffset uint64) *Iterator {
 }
 
 func (i *Iterator) Next() bool {
+	i.prevOff = i.currOff
 	data, err := i.log.Read(i.Offset())
 	if err != nil {
 		if errors.Is(err, ErrInvalidOffset) {
@@ -35,7 +37,7 @@ func (i *Iterator) Data() []byte {
 }
 
 func (i *Iterator) Offset() uint64 {
-	return i.currOff
+	return i.prevOff
 }
 
 func (i *Iterator) Err() error {

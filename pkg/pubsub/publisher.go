@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	eventlog "pipelines/pkg/event_log"
@@ -9,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type DeliverFunc func(e Event) error
+type DeliverFunc func(e Event, offset uint64) error
 
 type Event struct {
 	ID          uuid.UUID
@@ -47,16 +48,41 @@ func (b *Bus) Publish(e Event) error {
 		return err
 	}
 
-	if _, err := b.log.Append(encoded); err != nil {
+	offset, err := b.log.Append(encoded)
+	if err != nil {
 		return err
 	}
 
 	subs, _ := b.registry.GetSubscriptions(e.Type)
 
 	for _, sub := range subs {
-		if err := sub.DeliverFunc(e); err != nil {
+		if err := sub.DeliverFunc(e, offset); err != nil {
 			// do something if delivery fails?
 		}
+	}
+	return nil
+}
+
+var ErrSubscriptionNotFound = errors.New("subscription not found")
+
+func (b *Bus) Replay(subscriptionId string) error {
+	// get the subscriber
+	s := b.registry.GetSubscriptionById(subscriptionId)
+	if s == nil {
+		// should this just return nil? maybe this just shouldn't care
+		return ErrSubscriptionNotFound
+	}
+
+	// create an iterator for the log
+	logs := eventlog.NewIterator(b.log, s.lastAckOffset)
+
+	// publish unacknowledged events back to the subscriber
+	for logs.Next() {
+		e, err := decodeEvent(logs.Data())
+		if err != nil {
+			return err
+		}
+		s.DeliverFunc(e, logs.Offset())
 	}
 	return nil
 }

@@ -121,14 +121,14 @@ func TestPublishSubsciberFailsToOneSub(t *testing.T) {
 }
 
 func deliverFuncCounter(fn DeliverFunc, count *int) DeliverFunc {
-	return func(e Event) error {
+	return func(e Event, o uint64) error {
 		*count++
-		return fn(e)
+		return fn(e, o)
 	}
 }
 
 func errDeliverCounter(count *int) DeliverFunc {
-	return func(e Event) error {
+	return func(e Event, o uint64) error {
 		*count++
 		return fmt.Errorf("simluating error")
 	}
