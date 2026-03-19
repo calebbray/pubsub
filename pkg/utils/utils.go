@@ -49,6 +49,13 @@ func (EchoConnHandler) HandleConn(conn net.Conn) {
 	}
 }
 
+type BlockingConnHandler struct{}
+
+func (h BlockingConnHandler) HandleConn(conn net.Conn) {
+	defer conn.Close()
+	<-make(chan struct{})
+}
+
 func NewTestLog(size int64) *eventlog.Log {
 	return &eventlog.Log{
 		EventLogger: &TestLog{

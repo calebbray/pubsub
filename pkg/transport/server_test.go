@@ -1,7 +1,9 @@
 package transport_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"pipelines/pkg/transport"
 	"pipelines/pkg/utils"
@@ -100,16 +102,99 @@ func TestHandlingMultipleConnections(t *testing.T) {
 	assert.Equal(t, conn2Msg, response)
 }
 
-// TODO: Something in this test is funky
-// func TestHandlerErrorClosesConnection(t *testing.T) {
-// 	s := newTestServer(t, ServerOpts{
-// 		Logger:  LogWriter{},
-// 		Handler: errHandler{},
-// 	})
-// 	conn, err := Dial(s.Addr())
-// 	require.NoError(t, err)
-// 	WriteFrame(conn, []byte("this should close connection"))
-// 	_, err = ReadFrame(conn)
-// 	// require.Error(t, err)
-// 	require.Error(t, WriteFrame(conn, []byte("connection should be closed")))
-// }
+func TestSlowClientMissesDeadline(t *testing.T) {
+	s := utils.NewTestServer(t, transport.ServerOpts{
+		Logger:  utils.LogWriter{},
+		Handler: utils.EchoConnHandler{},
+		DeadlineConfig: transport.DeadlineConfig{
+			ReadTimeout:  50 * time.Millisecond,
+			WriteTimeout: 50 * time.Millisecond,
+		},
+	})
+
+	conn, err := transport.Dial(s.Addr())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	_, err = transport.ReadFrame(conn)
+	require.Error(t, err)
+}
+
+func TestSendJustInTime(t *testing.T) {
+	s := utils.NewTestServer(t, transport.ServerOpts{
+		Handler: utils.EchoConnHandler{},
+		DeadlineConfig: transport.DeadlineConfig{
+			ReadTimeout:  500 * time.Millisecond,
+			WriteTimeout: 500 * time.Millisecond,
+		},
+	})
+
+	conn, err := transport.Dial(s.Addr())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	err = transport.WriteFrame(conn, []byte("in time"))
+	require.NoError(t, err)
+
+	frame, err := transport.ReadFrame(conn)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("in time"), frame)
+}
+
+func TestIsTimeout(t *testing.T) {
+	srv := utils.NewTestServer(t, transport.ServerOpts{
+		Handler: utils.EchoConnHandler{},
+	})
+
+	conn, err := transport.Dial(srv.Addr())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
+	time.Sleep(10 * time.Millisecond)
+
+	_, err = transport.ReadFrame(conn)
+	require.True(t, transport.IsTimeout(err))
+}
+
+func TestGracefulShutdown(t *testing.T) {
+	srv := utils.NewTestServer(t, transport.ServerOpts{
+		Handler: utils.EchoConnHandler{},
+	})
+
+	conn, err := transport.Dial(srv.Addr())
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	require.Nil(t, srv.Shutdown(ctx))
+
+	_, err = transport.ReadFrame(conn)
+	require.Error(t, err)
+}
+
+func TestShutdownTimesOut(t *testing.T) {
+	srv := utils.NewTestServer(t, transport.ServerOpts{
+		Handler: utils.BlockingConnHandler{},
+	})
+	_, err := transport.Dial(srv.Addr())
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err = srv.Shutdown(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestDialFailsAfterShutdown(t *testing.T) {
+	srv := utils.NewTestServer(t, transport.ServerOpts{
+		Handler: utils.BlockingConnHandler{},
+	})
+	_, err := transport.Dial(srv.Addr())
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	srv.Shutdown(ctx)
+	_, err = transport.Dial(srv.Addr())
+	require.Error(t, err)
+}

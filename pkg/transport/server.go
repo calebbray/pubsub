@@ -1,11 +1,13 @@
 package transport
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
+	"time"
 )
 
 type Server struct {
@@ -15,17 +17,30 @@ type Server struct {
 	ln   net.Listener
 	wg   sync.WaitGroup
 
+	tracker *connTracker
+
 	ready chan struct{}
 }
 
 type ServerOpts struct {
+	DeadlineConfig
 	Handler    ConnHandler
 	Logger     io.Writer
 	ValidToken string
 }
 
+type DeadlineConfig struct {
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+}
+
 func NewServer(addr string, opts ServerOpts) *Server {
-	s := &Server{addr: addr, ServerOpts: opts, ready: make(chan struct{})}
+	s := &Server{
+		addr:       addr,
+		ready:      make(chan struct{}),
+		tracker:    newConnTracker(),
+		ServerOpts: opts,
+	}
 
 	return s
 }
@@ -63,12 +78,28 @@ func (s *Server) Listen() error {
 	}
 }
 
-func (s *Server) Close() error {
-	if s.ln != nil {
-		s.ln.Close()
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.ln.Close()
+	s.tracker.closeAll()
+
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	s.wg.Wait()
-	return nil
+}
+
+func (s *Server) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	return s.Shutdown(ctx)
 }
 
 func (s *Server) Ready() <-chan struct{} {
@@ -85,5 +116,84 @@ func Dial(addr string) (net.Conn, error) {
 
 func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
+
+	if s.ReadTimeout > 0 || s.WriteTimeout > 0 {
+		conn = &connWithDeadline{
+			Conn:         conn,
+			readTimeout:  s.ReadTimeout,
+			writeTimeout: s.WriteTimeout,
+		}
+	}
+
+	s.tracker.add(conn)
+
+	defer func() {
+		s.tracker.remove(conn)
+		conn.Close()
+	}()
+
 	s.Handler.HandleConn(conn)
+}
+
+func IsTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+type connWithDeadline struct {
+	net.Conn
+	readTimeout  time.Duration
+	writeTimeout time.Duration
+}
+
+func (c connWithDeadline) Read(p []byte) (int, error) {
+	if c.readTimeout > 0 {
+		c.Conn.SetReadDeadline(time.Now().Add(c.readTimeout))
+	}
+	return c.Conn.Read(p)
+}
+
+func (c connWithDeadline) Write(p []byte) (int, error) {
+	if c.writeTimeout > 0 {
+		c.Conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	}
+	return c.Conn.Write(p)
+}
+
+type connTracker struct {
+	mu          sync.Mutex
+	connections map[net.Conn]struct{}
+}
+
+func newConnTracker() *connTracker {
+	return &connTracker{
+		connections: make(map[net.Conn]struct{}),
+	}
+}
+
+func (t *connTracker) add(conn net.Conn) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.connections[conn] = struct{}{}
+}
+
+func (t *connTracker) remove(conn net.Conn) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.connections, conn)
+}
+
+// prevents race conditions with handleConn deleting from servers conn map.
+// lock, copy, unlock, close pattern.
+func (t *connTracker) closeAll() {
+	t.mu.Lock()
+	conns := make([]net.Conn, 0, len(t.connections))
+	for conn := range t.connections {
+		conns = append(conns, conn)
+	}
+	t.mu.Unlock()
+
+	for _, conn := range conns {
+		conn.Close()
+	}
 }

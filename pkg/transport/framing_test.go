@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"testing"
@@ -71,6 +72,26 @@ func TestZeroLenPayload(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, len(frame))
+}
+
+func TestMaxFrameSizeSucceeds(t *testing.T) {
+	buf := &Buffer{data: make([]byte, MaxFrameSize+4)}
+	binary.BigEndian.PutUint32(buf.data[0:4], uint32(MaxFrameSize))
+	_, err := ReadFrame(buf)
+	require.NoError(t, err)
+}
+
+func TestMaxFrameSizeOverflowFails(t *testing.T) {
+	buf := &Buffer{data: make([]byte, MaxFrameSize+5)}
+	binary.BigEndian.PutUint32(buf.data[0:4], uint32(MaxFrameSize+1))
+	_, err := ReadFrame(buf)
+	require.ErrorIs(t, err, ErrMaxPayloadExceeded)
+}
+
+func TestWriteFrameOverMaxSizeFails(t *testing.T) {
+	buf := &Buffer{data: make([]byte, MaxFrameSize+5)}
+	err := WriteFrame(buf, make([]byte, MaxFrameSize+1))
+	require.ErrorIs(t, err, ErrMaxPayloadExceeded)
 }
 
 type Buffer struct {

@@ -2,17 +2,25 @@ Section 1 — Transport Layer
 ✅: Framing (length-prefixed frames, ReadFrame/WriteFrame)
 ✅: TCP Connections (listener, dial, accept loop)
 ✅: Connection Handler (handler interface, echo, request/response)
+✅: Max frame size guard
+✅: Read/write deadlines
+✅: Graceful shutdown of in-flight connections
 
 Section 2 — Session Layer
 ✅: Session struct (connection identity, session ID generation)
 ✅: Handshake (client sends identity + auth token, server validates)
 ✅: Capability negotiation (client/server agree on protocol version)
 ✅: Per-session rate limiting
+❌: Session timeout and idle detection
+❌: Reconnection and session resumption
 
 Section 3 — Event Log
 ✅: Append-only log (write events to disk, sequential offsets)
 ✅: Reading and replaying (read from offset, iterate entries)
 ✅: Durability (fsync, crash recovery, reopening an existing log)
+❌: Segment-based log rotation
+❌: Corruption detection and recovery
+❌: Index file for fast offset lookup
 
 Section 4 — RPC Layer
 ✅: Message encoding (serializing RPC requests/responses)
@@ -25,9 +33,17 @@ Section 5 — Pub/Sub
 ✅: Publish (accepting events, writing to log, fanning out to subscribers)
 ✅: Offsets and acks (tracking subscriber progress)
 ✅: Retry and DLQ (redelivery on failure, dead letter queue)
+❌: Backpressure and slow subscriber detection
+❌: Concurrent fan-out with bounded goroutines
+❌: DLQ inspection and replay API
 
 Section 6 — Registry
 ✅: Subscription storage (persisting subscriptions to disk)
 ✅: Dataset/service metadata (storing and querying artifact pointers)
-❌: State projection (deriving latest version, last success/failure)
-❌: Query API (latest version of X, who subscribes to X, runs by correlation ID)
+✅: State projection (deriving latest version, last success/failure)
+✅: Query API (latest version of X, who subscribes to X, runs by correlation ID)
+
+Section 7 — Observability
+❌: Structured logging throughout
+❌: Metrics collection (request counts, latency, queue depth)
+❌: Health check and readiness endpoints
