@@ -11,7 +11,7 @@ Section 2 — Session Layer
 ✅: Handshake (client sends identity + auth token, server validates)
 ✅: Capability negotiation (client/server agree on protocol version)
 ✅: Per-session rate limiting
-❌: Session timeout and idle detection
+✅: Session timeout and idle detection
 ❌: Reconnection and session resumption
 
 Section 3 — Event Log

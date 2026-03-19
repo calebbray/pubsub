@@ -26,8 +26,8 @@ func TestSessionsAreUnique(t *testing.T) {
 	require.NoError(t, err)
 	defer c2.Close()
 
-	s1 := session.New(c1, nil)
-	s2 := session.New(c2, nil)
+	s1 := session.New(c1, session.SessionOpts{})
+	s2 := session.New(c2, session.SessionOpts{})
 
 	assert.NotEqual(t, s1.Id(), s2.Id(), "Sessions should have different IDs")
 }
@@ -42,7 +42,7 @@ func TestSessionCreatedTime(t *testing.T) {
 	defer conn.Close()
 
 	before := time.Now()
-	s := session.New(conn, nil)
+	s := session.New(conn, session.SessionOpts{})
 	after := time.Now()
 	assert.True(t, s.CreatedAt().After(before))
 	assert.True(t, s.CreatedAt().Before(after))
@@ -57,7 +57,7 @@ func TestHandshakeAndCapabilities(t *testing.T) {
 		},
 	})
 
-	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1})
+	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1}, session.SessionOpts{})
 	require.NoError(t, err)
 	defer s.Close()
 	require.NotNil(t, s)
@@ -71,7 +71,7 @@ func TestInvalidHandshake(t *testing.T) {
 		},
 	})
 
-	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoke", []uint8{1})
+	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoke", []uint8{1}, session.SessionOpts{})
 	require.Error(t, err, "invalid token should fail")
 	assert.Contains(t, err.Error(), "invalid token")
 	assert.Nil(t, s)
@@ -86,7 +86,7 @@ func TestInvalidCapabilities(t *testing.T) {
 		},
 	})
 
-	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1})
+	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1}, session.SessionOpts{})
 	require.Error(t, err, "non supported client version should fail")
 	assert.Contains(t, err.Error(), "unsupported protocol version")
 	assert.Nil(t, s)
@@ -101,7 +101,7 @@ func TestServerPicksUpLatestCapability(t *testing.T) {
 		},
 	})
 
-	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{2, 3})
+	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{2, 3}, session.SessionOpts{})
 	require.NoError(t, err)
 	defer s.Close()
 	assert.Equal(t, 3, s.Version())
@@ -163,12 +163,13 @@ func TestMultipleSessionRateLimits(t *testing.T) {
 		},
 	})
 
-	s1, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1})
+	s1, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1}, session.SessionOpts{})
 	require.NoError(t, err)
 
 	s2, err := session.Dial(
 		srv.Addr(), "s2",
 		"mysecrettoken", []uint8{1},
+		session.SessionOpts{},
 	)
 
 	require.NoError(t, err)
@@ -210,7 +211,7 @@ func TestUnlimitedFrameRateLimit(t *testing.T) {
 		},
 	})
 
-	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1})
+	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1}, session.SessionOpts{})
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -218,6 +219,89 @@ func TestUnlimitedFrameRateLimit(t *testing.T) {
 		msg := fmt.Appendf(nil, "frame-%d", i)
 		require.NoError(t, s.Send(msg))
 	}
+}
+
+func TestClientHeartbeatSendsPings(t *testing.T) {
+	sess, _ := newHeartbeatTestSession(t)
+	defer sess.Close()
+
+	// sleep past the time out (100 ms)
+	time.Sleep(101 * time.Millisecond)
+
+	require.NoError(t, sess.Send([]byte("still alive")))
+	_, err := sess.Receive()
+	require.NoError(t, err)
+}
+
+func TestIdleConnectionClosesAfterTimeout(t *testing.T) {
+	srv := utils.NewTestServer(t, transport.ServerOpts{
+		Handler: session.SessionHandler{
+			Handler:           transport.EchoFrameHandler{},
+			ValidToken:        "mysecrettoken",
+			SupportedVersions: []uint8{1},
+			RateLimit:         &session.RateLimitOpts{Limit: 5, BurstSize: 10},
+			Heartbeat: session.HeartbeatConfig{
+				Timeout: 100 * time.Millisecond,
+			},
+		},
+	})
+
+	sess, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1}, session.SessionOpts{})
+	require.NoError(t, err)
+	defer sess.Close()
+
+	// sleep past the time out (100 ms)
+	time.Sleep(101 * time.Millisecond)
+
+	_, err = sess.Receive()
+	require.Error(t, err)
+}
+
+func TestClientHeartbeatRoundTrip(t *testing.T) {
+	sess, _ := newValidatedTestSession(t)
+	defer sess.Close()
+
+	require.NoError(t, sess.Send([]byte{byte(session.KindPing)}))
+	d, err := sess.Receive()
+
+	require.NoError(t, err)
+	require.Equal(t, 1, len(d))
+	assert.Equal(t, d[0], byte(session.KindPong))
+}
+
+func TestNoHeartbeat(t *testing.T) {
+	sess, _ := newValidatedTestSession(t)
+	defer sess.Close()
+
+	time.Sleep(100 * time.Millisecond)
+	require.NoError(t, sess.Send([]byte("hello")))
+	_, err := sess.Receive()
+	require.NoError(t, err)
+}
+
+func newHeartbeatTestSession(t *testing.T) (*session.Session, *transport.Server) {
+	t.Helper()
+	srv := utils.NewTestServer(t, transport.ServerOpts{
+		Handler: session.SessionHandler{
+			Handler:           transport.EchoFrameHandler{},
+			ValidToken:        "mysecrettoken",
+			SupportedVersions: []uint8{1},
+			RateLimit:         &session.RateLimitOpts{Limit: 5, BurstSize: 10},
+			Heartbeat: session.HeartbeatConfig{
+				Interval: 50 * time.Millisecond,
+				Timeout:  100 * time.Millisecond,
+			},
+		},
+	})
+
+	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1}, session.SessionOpts{
+		Heartbeat: session.HeartbeatConfig{
+			Interval: 50 * time.Millisecond,
+			Timeout:  100 * time.Millisecond,
+		},
+	})
+	require.NoError(t, err)
+	return s, srv
 }
 
 func newValidatedTestSession(t *testing.T) (*session.Session, *transport.Server) {
@@ -231,7 +315,7 @@ func newValidatedTestSession(t *testing.T) (*session.Session, *transport.Server)
 		},
 	})
 
-	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1})
+	s, err := session.Dial(srv.Addr(), "caleb", "mysecrettoken", []uint8{1}, session.SessionOpts{})
 	require.NoError(t, err)
 	return s, srv
 }
