@@ -83,6 +83,7 @@ func newRPCClient(t *testing.T, addr string, token string) (*rpc.Client, error) 
 		token,
 		[]uint8{1},
 		session.SessionOpts{},
+		"",
 	)
 	if err != nil {
 		return nil, err

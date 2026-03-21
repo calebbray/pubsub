@@ -12,7 +12,7 @@ Section 2 — Session Layer
 ✅: Capability negotiation (client/server agree on protocol version)
 ✅: Per-session rate limiting
 ✅: Session timeout and idle detection
-❌: Reconnection and session resumption
+✅: Reconnection and session resumption
 
 Section 3 — Event Log
 ✅: Append-only log (write events to disk, sequential offsets)
