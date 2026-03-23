@@ -94,6 +94,57 @@ func TestWriteFrameOverMaxSizeFails(t *testing.T) {
 	require.ErrorIs(t, err, ErrMaxPayloadExceeded)
 }
 
+func TestReadWriteWithChecksum(t *testing.T) {
+	testFramer := NewFramer(1024)
+	var buf Buffer
+	data := []byte("my super special data")
+
+	require.NoError(t, testFramer.WriteFrame(&buf, data))
+	read, err := testFramer.ReadFrame(&buf)
+	require.NoError(t, err)
+	assert.Equal(t, data, read)
+}
+
+func TestChecksumErrorsOnCorruptedData(t *testing.T) {
+	testFramer := NewFramer(1024)
+	var buf Buffer
+	data := []byte("my super special data")
+
+	require.NoError(t, testFramer.WriteFrame(&buf, data))
+
+	// corrupting the data
+	copy(buf.data[8:17], []byte("foobarbaz"))
+
+	_, err := testFramer.ReadFrame(&buf)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, ErrChecksumMismatch.Error())
+}
+
+func TestChecksumOnZeroBytePayload(t *testing.T) {
+	testFramer := NewFramer(1024)
+	var buf Buffer
+	data := []byte("")
+
+	require.NoError(t, testFramer.WriteFrame(&buf, data))
+
+	_, err := testFramer.ReadFrame(&buf)
+	require.NoError(t, err)
+}
+
+func TestChecksumErrorsOnCorruptedChecksum(t *testing.T) {
+	testFramer := NewFramer(1024)
+	var buf Buffer
+	data := []byte("my super special data")
+
+	require.NoError(t, testFramer.WriteFrame(&buf, data))
+
+	// corrupt the checksum bytes (bytes 4-7)
+	buf.data[4] ^= 0xFF
+
+	_, err := testFramer.ReadFrame(&buf)
+	require.ErrorIs(t, err, ErrChecksumMismatch)
+}
+
 type Buffer struct {
 	data      []byte
 	pos       int
