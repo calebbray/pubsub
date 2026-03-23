@@ -18,7 +18,7 @@ Section 3 — Event Log
 ✅: Append-only log (write events to disk, sequential offsets)
 ✅: Reading and replaying (read from offset, iterate entries)
 ✅: Durability (fsync, crash recovery, reopening an existing log)
-❌: Segment-based log rotation
+✅: Segment-based log rotation
 ❌: Corruption detection and recovery
 ❌: Index file for fast offset lookup
 
