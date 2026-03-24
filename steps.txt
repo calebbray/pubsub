@@ -20,7 +20,6 @@ Section 3 — Event Log
 ✅: Durability (fsync, crash recovery, reopening an existing log)
 ✅: Segment-based log rotation
 ✅: Corruption detection and recovery
-❌: Index file for fast offset lookup
 
 Section 4 — RPC Layer
 ✅: Message encoding (serializing RPC requests/responses)
@@ -33,7 +32,7 @@ Section 5 — Pub/Sub
 ✅: Publish (accepting events, writing to log, fanning out to subscribers)
 ✅: Offsets and acks (tracking subscriber progress)
 ✅: Retry and DLQ (redelivery on failure, dead letter queue)
-❌: Backpressure and slow subscriber detection
+✅: Backpressure and slow subscriber detection
 ❌: Concurrent fan-out with bounded goroutines
 ❌: DLQ inspection and replay API
 

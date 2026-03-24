@@ -12,16 +12,27 @@ type Subscription struct {
 	SubscriberId  string `json:"subscriberId"`
 	EventType     string `json:"eventType"`
 	LastAckOffset uint64 `json:"lastAckOffset"`
-	deliverFunc   DeliverFunc
+	deliverBuf    *deliveryBuf
 }
 
-func NewSubscription(subscriberId, eventType string, fn DeliverFunc) *Subscription {
-	return &Subscription{
+func NewSubscription(subscriberId, eventType string,
+	fn DeliverFunc, slowPolicy SlowSubscriberPolicy,
+	onError func(d delivery, err error),
+) *Subscription {
+	s := &Subscription{
 		ID:           uuid.New().String(),
 		SubscriberId: subscriberId,
 		EventType:    eventType,
-		deliverFunc:  fn,
+		deliverBuf: &deliveryBuf{
+			buf:     make(chan delivery, 16),
+			policy:  slowPolicy,
+			onError: onError,
+		},
 	}
+
+	go s.deliverBuf.consume(fn)
+
+	return s
 }
 
 type Registry struct {
@@ -39,7 +50,10 @@ func NewRegistry() *Registry {
 	}
 }
 
-func (r *Registry) Subscribe(subscriberID, eventType string, fn DeliverFunc) (*Subscription, error) {
+func (r *Registry) Subscribe(
+	subscriberID, eventType string, fn DeliverFunc,
+	policy SlowSubscriberPolicy, onError func(delivery, error),
+) (*Subscription, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -47,7 +61,7 @@ func (r *Registry) Subscribe(subscriberID, eventType string, fn DeliverFunc) (*S
 		fn = DefaultDeliverFunc
 	}
 
-	s := NewSubscription(subscriberID, eventType, fn)
+	s := NewSubscription(subscriberID, eventType, fn, policy, onError)
 	r.byEventType[eventType] = append(r.byEventType[eventType], s)
 	r.bySubscriber[subscriberID] = append(r.bySubscriber[subscriberID], s)
 	r.bySubscription[s.ID] = s
@@ -125,7 +139,10 @@ func (r *Registry) Ack(subscriptionId string, offset uint64) error {
 	return nil
 }
 
-func (r *Registry) Reattach(subscriberId, eventType string, fn DeliverFunc) error {
+func (r *Registry) Reattach(
+	subscriberId, eventType string, fn DeliverFunc,
+	policy SlowSubscriberPolicy, onError func(delivery, error),
+) error {
 	subs, ok := r.bySubscriber[subscriberId]
 	if !ok {
 		return fmt.Errorf("can not reattach")
@@ -133,7 +150,12 @@ func (r *Registry) Reattach(subscriberId, eventType string, fn DeliverFunc) erro
 
 	for _, sub := range subs {
 		if sub.EventType == eventType {
-			sub.deliverFunc = fn
+			sub.deliverBuf = &deliveryBuf{
+				buf:     make(chan delivery, 16),
+				policy:  policy,
+				onError: onError,
+			}
+			go sub.deliverBuf.consume(fn)
 			return nil
 		}
 	}
@@ -143,4 +165,32 @@ func (r *Registry) Reattach(subscriberId, eventType string, fn DeliverFunc) erro
 func DefaultDeliverFunc(e Event, offset uint64) error {
 	fmt.Println(offset, e)
 	return nil
+}
+
+type SlowSubscriberPolicy int
+
+const (
+	Drop SlowSubscriberPolicy = iota
+	Disconnect
+)
+
+type deliveryBuf struct {
+	buf     chan delivery
+	policy  SlowSubscriberPolicy
+	onError func(d delivery, err error)
+}
+
+type delivery struct {
+	event  Event
+	offset uint64
+}
+
+func (b *deliveryBuf) consume(fn DeliverFunc) {
+	for e := range b.buf {
+		if err := fn(e.event, e.offset); err != nil {
+			if b.onError != nil {
+				b.onError(e, err)
+			}
+		}
+	}
 }

@@ -63,22 +63,45 @@ func (b *Bus) Publish(e Event) error {
 	subs, _ := b.registry.GetSubscriptions(e.Type)
 
 	for _, sub := range subs {
-		if err := sub.deliverFunc(e, offset); err != nil {
-			delivered := false
-			for range b.Retry.MaxRetries {
-				time.Sleep(b.Retry.Delay)
-				if err = sub.deliverFunc(e, offset); err == nil {
-					delivered = true
-					break
-				}
+		select {
+		case sub.deliverBuf.buf <- delivery{event: e, offset: offset}:
+			// delivered
+		default:
+			// buffer is full - apply policy
+			switch sub.deliverBuf.policy {
+			case Drop:
+				// skip
+			case Disconnect:
+				b.registry.Unsubscribe(sub.ID)
 			}
 
-			if !delivered && b.Dlq != nil {
-				b.Dlq.Append(e, err.Error(), sub.ID)
-			}
 		}
 	}
 	return nil
+}
+
+func (b *Bus) Subscribe(subscriberId, eventType string, fn DeliverFunc, policy SlowSubscriberPolicy) (*Subscription, error) {
+	var subId string
+	onError := func(d delivery, err error) {
+		delivered := false
+		for range b.Retry.MaxRetries {
+			time.Sleep(b.Retry.Delay)
+			if err := fn(d.event, d.offset); err == nil {
+				delivered = true
+				break
+			}
+		}
+
+		if !delivered && b.Dlq != nil {
+			b.Dlq.Append(d.event, err.Error(), subId)
+		}
+	}
+	sub, err := b.registry.Subscribe(subscriberId, eventType, fn, policy, onError)
+	if err != nil {
+		return nil, err
+	}
+	subId = sub.ID
+	return sub, nil
 }
 
 var ErrSubscriptionNotFound = errors.New("subscription not found")
@@ -100,7 +123,7 @@ func (b *Bus) Replay(subscriptionId string) error {
 		if err != nil {
 			return err
 		}
-		s.deliverFunc(e, logs.Offset())
+		s.deliverBuf.buf <- delivery{event: e, offset: logs.Offset()}
 	}
 	return nil
 }

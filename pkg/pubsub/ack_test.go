@@ -1,6 +1,7 @@
 package pubsub
 
 import (
+	"sync"
 	"testing"
 
 	"pipelines/pkg/utils"
@@ -9,12 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testOnError(d delivery, err error) {
+	return
+}
+
 func TestAckUpdatesSubscriptionOffset(t *testing.T) {
 	r := NewRegistry()
 	e := "test-event"
 	s := "caleb"
 
-	sub, _ := r.Subscribe(s, e, DefaultDeliverFunc)
+	sub, _ := r.Subscribe(s, e, DefaultDeliverFunc, Drop, testOnError)
 	// just testing ack actually updates a subscription pointer
 	// no orchestrating of a bus / logging
 
@@ -35,14 +40,17 @@ func TestPublishPassesCorrectOffsetToDeliver(t *testing.T) {
 	require.NoError(t, err)
 	encodedLen := len(encoded)
 
+	var wg sync.WaitGroup
 	var size uint64
-	_, err = r.Subscribe(s, e, deliverOffsetChecker(DefaultDeliverFunc, &size))
+	_, err = r.Subscribe(s, e, deliverOffsetChecker(&size, &wg), Drop, testOnError)
 	require.NoError(t, err)
 
+	wg.Add(2)
 	require.NoError(t, b.Publish(testEvent))
 	assert.Equal(t, uint64(0), size)
 
 	require.NoError(t, b.Publish(testEvent))
+	wg.Wait()
 	// +4 for the length prefix header
 	assert.Equal(t, uint64(encodedLen+4), size)
 }
@@ -64,6 +72,7 @@ func TestReplayDeliversAllEventsNotAcked(t *testing.T) {
 	require.NoError(t, err)
 	offset := uint64(len(encoded) + 4)
 
+	var wg sync.WaitGroup
 	// Publish 5 events we will Ack the first one
 	require.NoError(t, b.Publish(e1))
 	require.NoError(t, b.Publish(e2))
@@ -72,13 +81,15 @@ func TestReplayDeliversAllEventsNotAcked(t *testing.T) {
 	require.NoError(t, b.Publish(e5))
 
 	var count int
-	sub, err := r.Subscribe(s, e, deliverFuncCounter(DefaultDeliverFunc, &count))
+	sub, err := r.Subscribe(s, e, deliverFuncCounter(&count, &wg), Drop, testOnError)
 	require.NoError(t, err)
 
 	r.Ack(sub.ID, offset)
 	// resetting count to 0 so we can verify the four unacked events are replayed
 
+	wg.Add(4)
 	b.Replay(sub.ID)
+	wg.Wait()
 	assert.Equal(t, 4, count)
 }
 
@@ -96,6 +107,7 @@ func TestReplayFromStart(t *testing.T) {
 	e4 := NewEvent(e, p, d)
 	e5 := NewEvent(e, p, d)
 
+	var wg sync.WaitGroup
 	require.NoError(t, b.Publish(e1))
 	require.NoError(t, b.Publish(e2))
 	require.NoError(t, b.Publish(e3))
@@ -103,15 +115,18 @@ func TestReplayFromStart(t *testing.T) {
 	require.NoError(t, b.Publish(e5))
 
 	var count int
-	sub, err := r.Subscribe(s, e, deliverFuncCounter(DefaultDeliverFunc, &count))
+	sub, err := r.Subscribe(s, e, deliverFuncCounter(&count, &wg), Drop, testOnError)
 	require.NoError(t, err)
+	wg.Add(5)
 	b.Replay(sub.ID)
+	wg.Wait()
 	assert.Equal(t, 5, count)
 }
 
-func deliverOffsetChecker(fn DeliverFunc, size *uint64) DeliverFunc {
+func deliverOffsetChecker(size *uint64, wg *sync.WaitGroup) DeliverFunc {
 	return func(e Event, o uint64) error {
 		*size = o
-		return fn(e, o)
+		wg.Done()
+		return nil
 	}
 }

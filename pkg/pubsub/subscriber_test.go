@@ -12,7 +12,7 @@ func TestSubscribeAndRetrieve(t *testing.T) {
 	e := "test-event"
 	subscriber := "caleb"
 
-	s, err := r.Subscribe(subscriber, e, DefaultDeliverFunc)
+	s, err := r.Subscribe(subscriber, e, DefaultDeliverFunc, Drop, testOnError)
 	require.NoError(t, err)
 	t.Run("retrieve by event type", func(t *testing.T) {
 		subs, err := r.GetSubscriptions(e)
@@ -44,13 +44,13 @@ func TestUnsubscribeLifecycle(t *testing.T) {
 	e3 := "test-event-3"
 	subscriber := "caleb"
 
-	_, err := r.Subscribe(subscriber, e1, DefaultDeliverFunc)
+	_, err := r.Subscribe(subscriber, e1, DefaultDeliverFunc, Drop, testOnError)
 	require.NoError(t, err)
 
-	s2, err := r.Subscribe(subscriber, e2, DefaultDeliverFunc)
+	s2, err := r.Subscribe(subscriber, e2, DefaultDeliverFunc, Drop, testOnError)
 	require.NoError(t, err)
 
-	s3, err := r.Subscribe(subscriber, e3, DefaultDeliverFunc)
+	s3, err := r.Subscribe(subscriber, e3, DefaultDeliverFunc, Drop, testOnError)
 	require.NoError(t, err)
 
 	t.Run("unsubscribe removes from event type", func(t *testing.T) {
@@ -76,9 +76,9 @@ func TestMultipleSubscribersToSameEventType(t *testing.T) {
 	s1 := "caleb"
 	s2 := "bray"
 
-	_, err := r.Subscribe(s1, e, DefaultDeliverFunc)
+	_, err := r.Subscribe(s1, e, DefaultDeliverFunc, Drop, testOnError)
 	require.NoError(t, err)
-	_, err = r.Subscribe(s2, e, DefaultDeliverFunc)
+	_, err = r.Subscribe(s2, e, DefaultDeliverFunc, Drop, testOnError)
 	require.NoError(t, err)
 
 	subs, err := r.GetSubscriptions(e)

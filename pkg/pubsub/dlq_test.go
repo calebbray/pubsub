@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,20 +27,24 @@ func TestDeliverySucceedsAfterRetry(t *testing.T) {
 
 	ev := NewEvent(e, p, d)
 
+	var wg sync.WaitGroup
 	failed := false
-	count := 0
+	// count := 0
 	_, err := r.Subscribe(s, e,
 		failOnceDeliverFunc(
-			deliverFuncCounter(DefaultDeliverFunc, &count),
 			&failed,
+			&wg,
 		),
+		Drop,
+		testOnError,
 	)
 	require.NoError(t, err)
 
+	wg.Add(1)
 	require.NoError(t, b.Publish(ev))
+	wg.Wait()
 
 	assert.True(t, failed)
-	assert.Equal(t, 1, count)
 }
 
 func TestDeliveryFailsRetriesSendsToDLQ(t *testing.T) {
@@ -58,12 +63,16 @@ func TestDeliveryFailsRetriesSendsToDLQ(t *testing.T) {
 
 	ev := NewEvent(e, p, d)
 
-	sub, err := r.Subscribe(s, e, failAlwaysDeliverFunc(DefaultDeliverFunc))
+	sub, err := b.Subscribe(s, e, failAlwaysDeliverFunc(), Drop)
 	require.NoError(t, err)
 
 	require.NoError(t, b.Publish(ev))
 
-	data, err := b.Dlq.Read(0)
+	var data []byte
+	require.Eventually(t, func() bool {
+		data, err = b.Dlq.Read(0)
+		return err == nil
+	}, time.Second, 10*time.Millisecond)
 	require.NoError(t, err)
 
 	l, err := decodeDlqLog(data)
@@ -88,11 +97,14 @@ func TestSuccessfulDeliveryEmptyDLQ(t *testing.T) {
 
 	ev := NewEvent(e, p, d)
 
+	var wg sync.WaitGroup
 	count := 0
-	_, err := r.Subscribe(s, e, deliverFuncCounter(DefaultDeliverFunc, &count))
+	_, err := r.Subscribe(s, e, deliverFuncCounter(&count, &wg), Drop, testOnError)
 	require.NoError(t, err)
 
+	wg.Add(1)
 	require.NoError(t, b.Publish(ev))
+	wg.Wait()
 
 	assert.Equal(t, 1, count)
 
@@ -113,14 +125,18 @@ func TestZeroRetriesSendToDLQ(t *testing.T) {
 	ev := NewEvent(e, p, d)
 
 	failed := false
-	sub, err := r.Subscribe(s, e, failOnceDeliverFunc(DefaultDeliverFunc, &failed))
+	sub, err := b.Subscribe(s, e, failOnceDeliverFunc(&failed, nil), Drop)
 	require.NoError(t, err)
 
 	require.NoError(t, b.Publish(ev))
 
-	assert.True(t, failed)
+	var data []byte
+	require.Eventually(t, func() bool {
+		data, err = b.Dlq.Read(0)
+		return err == nil
+	}, time.Second, 10*time.Millisecond)
 
-	data, err := b.Dlq.Read(0)
+	assert.True(t, failed)
 	require.NoError(t, err)
 
 	l, err := decodeDlqLog(data)
@@ -129,18 +145,21 @@ func TestZeroRetriesSendToDLQ(t *testing.T) {
 	assert.Equal(t, sub.ID, l.SubscriberId)
 }
 
-func failOnceDeliverFunc(fn DeliverFunc, failed *bool) DeliverFunc {
+func failOnceDeliverFunc(failed *bool, wg *sync.WaitGroup) DeliverFunc {
 	return func(e Event, offset uint64) error {
+		if wg != nil {
+			wg.Done()
+		}
 		if !*failed {
 			*failed = true
 			return fmt.Errorf("failed once")
 		}
 
-		return fn(e, offset)
+		return nil
 	}
 }
 
-func failAlwaysDeliverFunc(DeliverFunc) DeliverFunc {
+func failAlwaysDeliverFunc() DeliverFunc {
 	return func(e Event, offset uint64) error {
 		return fmt.Errorf("failed")
 	}

@@ -2,7 +2,10 @@ package pubsub
 
 import (
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"pipelines/pkg/utils"
 
@@ -17,13 +20,16 @@ func TestPublishEvent(t *testing.T) {
 
 	testEvent := NewEvent(e, "publisher", []byte("Hello, world"))
 
+	var wg sync.WaitGroup
 	count := 0
-	_, err := r.Subscribe(n, e, deliverFuncCounter(DefaultDeliverFunc, &count))
+	_, err := r.Subscribe(n, e, deliverFuncCounter(&count, &wg), Drop, testOnError)
 	require.NoError(t, err)
 
 	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
-	require.NoError(t, b.Publish(testEvent))
 
+	wg.Add(1)
+	require.NoError(t, b.Publish(testEvent))
+	wg.Wait()
 	assert.Equal(t, 1, count)
 }
 
@@ -37,11 +43,14 @@ func TestPublishEventPersistsToLog(t *testing.T) {
 
 	testEvent := NewEvent(e, p, d)
 
+	var wg sync.WaitGroup
 	count := 0
-	_, err := r.Subscribe(s, e, deliverFuncCounter(DefaultDeliverFunc, &count))
+	_, err := r.Subscribe(s, e, deliverFuncCounter(&count, &wg), Drop, testOnError)
 	require.NoError(t, err)
 
+	wg.Add(1)
 	require.NoError(t, b.Publish(testEvent))
+	wg.Wait()
 
 	logBytes, err := b.log.Read(0)
 	require.NoError(t, err)
@@ -86,15 +95,29 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 
 	testEvent := NewEvent(e, p, d)
 
-	count := 0
-	_, err := r.Subscribe(s1, e, deliverFuncCounter(DefaultDeliverFunc, &count))
+	var wg sync.WaitGroup
+	var count atomic.Uint32
+	_, err := r.Subscribe(s1, e,
+		func(e Event, offset uint64) error {
+			count.Add(1)
+			wg.Done()
+			return nil
+		},
+		Drop, testOnError)
 	require.NoError(t, err)
-	_, err = r.Subscribe(s2, e, deliverFuncCounter(DefaultDeliverFunc, &count))
+	_, err = r.Subscribe(s2, e, func(e Event, offset uint64) error {
+		count.Add(1)
+		wg.Done()
+		return nil
+	},
+		Drop, testOnError)
 	require.NoError(t, err)
 
+	wg.Add(2)
 	require.NoError(t, b.Publish(testEvent))
+	wg.Wait()
 
-	assert.Equal(t, 2, count)
+	assert.Equal(t, 2, int(count.Load()))
 }
 
 func TestPublishSubsciberFailsToOneSub(t *testing.T) {
@@ -108,28 +131,119 @@ func TestPublishSubsciberFailsToOneSub(t *testing.T) {
 
 	testEvent := NewEvent(e, p, d)
 
+	var wg sync.WaitGroup
 	count := 0
 	errCount := 0
-	_, err := r.Subscribe(s1, e, deliverFuncCounter(DefaultDeliverFunc, &count))
-	_, err = r.Subscribe(s2, e, errDeliverCounter(&errCount))
+	_, err := r.Subscribe(s1, e, deliverFuncCounter(&count, &wg), Drop, testOnError)
+	_, err = r.Subscribe(s2, e, errDeliverCounter(&errCount, &wg), Drop, testOnError)
 	require.NoError(t, err)
 
+	wg.Add(2)
 	require.NoError(t, b.Publish(testEvent))
+	wg.Wait()
 
 	assert.Equal(t, 1, count)
 	assert.Equal(t, 1, errCount)
 }
 
-func deliverFuncCounter(fn DeliverFunc, count *int) DeliverFunc {
+func TestSlowSubscriberDropPolicy(t *testing.T) {
+	r := NewRegistry()
+	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{})
+	e := "test-event"
+
+	block := make(chan struct{})
+	var received atomic.Int32
+
+	_, err := r.Subscribe("caleb", e, func(e Event, offset uint64) error {
+		<-block
+		received.Add(1)
+		return nil
+	}, Drop, testOnError)
+	require.NoError(t, err)
+
+	for i := range 20 {
+		b.Publish(NewEvent(e, "publisher", fmt.Appendf(nil, "event-%d", i)))
+	}
+
+	close(block)
+
+	require.Eventually(t, func() bool {
+		return received.Load() >= 1
+	}, time.Second, 10*time.Millisecond)
+
+	assert.Less(t, int(received.Load()), 20)
+}
+
+func TestSlowSubscriberDisconnectPolicy(t *testing.T) {
+	r := NewRegistry()
+	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{})
+	e := "test-event"
+
+	block := make(chan struct{})
+
+	sub, err := r.Subscribe("caleb", e, func(ev Event, offset uint64) error {
+		<-block
+		return nil
+	}, Disconnect, testOnError)
+	require.NoError(t, err)
+
+	for i := range 20 {
+		b.Publish(NewEvent(e, "publisher", fmt.Appendf(nil, "event-%d", i)))
+	}
+
+	// subscription should have been removed
+	require.Eventually(t, func() bool {
+		return r.GetSubscriptionById(sub.ID) == nil
+	}, time.Second, 10*time.Millisecond)
+
+	close(block)
+}
+
+func TestSlowSubscriberDoesntBlockFastOne(t *testing.T) {
+	r := NewRegistry()
+	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{})
+	e := "test-event"
+
+	block := make(chan struct{})
+	var fastCount atomic.Int32
+	var wg sync.WaitGroup
+
+	_, err := r.Subscribe("slow", e, func(ev Event, offset uint64) error {
+		<-block
+		return nil
+	}, Drop, testOnError)
+	require.NoError(t, err)
+
+	_, err = r.Subscribe("fast", e, func(ev Event, offset uint64) error {
+		fastCount.Add(1)
+		wg.Done()
+		return nil
+	}, Drop, testOnError)
+	require.NoError(t, err)
+
+	wg.Add(5)
+	for i := range 5 {
+		b.Publish(NewEvent(e, "publisher", fmt.Appendf(nil, "event-%d", i)))
+	}
+
+	wg.Wait()
+	assert.Equal(t, int32(5), fastCount.Load())
+
+	close(block)
+}
+
+func deliverFuncCounter(count *int, wg *sync.WaitGroup) DeliverFunc {
 	return func(e Event, o uint64) error {
 		*count++
-		return fn(e, o)
+		wg.Done()
+		return nil
 	}
 }
 
-func errDeliverCounter(count *int) DeliverFunc {
+func errDeliverCounter(count *int, wg *sync.WaitGroup) DeliverFunc {
 	return func(e Event, o uint64) error {
 		*count++
+		wg.Done()
 		return fmt.Errorf("simluating error")
 	}
 }
