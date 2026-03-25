@@ -341,6 +341,7 @@ func TestReconnectWithValidTokenResumesSession(t *testing.T) {
 	require.NoError(t, err)
 	token := sess.SessionToken()
 	version := sess.Version()
+
 	sess.Close()
 
 	// reconnect with token

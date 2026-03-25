@@ -60,6 +60,10 @@ func (f *Framer) ReadFrame(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 
+	if length > f.maxSize {
+		return nil, ErrMaxPayloadExceeded
+	}
+
 	buf := make([]byte, length)
 	_, err = io.ReadFull(r, buf)
 

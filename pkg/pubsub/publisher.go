@@ -31,21 +31,28 @@ func NewEvent(et, producerId string, payload []byte) Event {
 }
 
 type BusOpts struct {
-	Dlq   *DeadLetterQueue
-	Retry RetryPolicy
+	Dlq         *DeadLetterQueue
+	Retry       RetryPolicy
+	PoolWorkers int
 }
 
 type Bus struct {
 	BusOpts
 	registry *Registry
 	log      *eventlog.Log
+	pool     *WorkerPool
 }
 
 func NewEventBus(r *Registry, l *eventlog.Log, opts BusOpts) *Bus {
+	workers := opts.PoolWorkers
+	if workers == 0 {
+		workers = 3
+	}
 	return &Bus{
 		registry: r,
 		log:      l,
 		BusOpts:  opts,
+		pool:     NewWorkerPool(workers),
 	}
 }
 
@@ -63,18 +70,15 @@ func (b *Bus) Publish(e Event) error {
 	subs, _ := b.registry.GetSubscriptions(e.Type)
 
 	for _, sub := range subs {
-		select {
-		case sub.deliverBuf.buf <- delivery{event: e, offset: offset}:
-			// delivered
-		default:
-			// buffer is full - apply policy
-			switch sub.deliverBuf.policy {
+		err := b.pool.Submit(NewJob(sub.ID, sub.inbox, delivery{e, offset}, sub.policy, b.registry.Unsubscribe))
+
+		if err != nil && errors.Is(err, ErrPoolFull) {
+			switch sub.policy {
 			case Drop:
-				// skip
+				continue
 			case Disconnect:
 				b.registry.Unsubscribe(sub.ID)
 			}
-
 		}
 	}
 	return nil
@@ -123,7 +127,9 @@ func (b *Bus) Replay(subscriptionId string) error {
 		if err != nil {
 			return err
 		}
-		s.deliverBuf.buf <- delivery{event: e, offset: logs.Offset()}
+		b.pool.Submit(
+			NewJob(s.ID, s.inbox, delivery{e, logs.Offset()}, s.policy, b.registry.Unsubscribe),
+		)
 	}
 	return nil
 }
@@ -139,3 +145,5 @@ func decodeEvent(p []byte) (Event, error) {
 	}
 	return e, nil
 }
+
+func TestOnDeliveryError(delivery, error) {}

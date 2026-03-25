@@ -48,11 +48,9 @@ func (s *Session) ClientHello(clientId, token string, supportedVersions []uint8,
 		return info.token, nil
 	}
 
-	if err := s.ClientNegotiate(supportedVersions); err != nil {
-		return "", err
-	}
+	err = s.ClientNegotiate(supportedVersions)
 
-	return info.token, nil
+	return info.token, err
 }
 
 func (s *Session) validateServerHandshake(validToken string) (HandshakeRequest, error) {
@@ -136,8 +134,8 @@ func (s *Session) ServerNegotiate(supported []uint8) error {
 		res.Reason = ErrUnsupportedVersion.Error()
 		err = ErrUnsupportedVersion
 	} else {
-		s.version = res.Version
 		res.Version = slices.Max(matches)
+		s.version = res.Version
 	}
 
 	b, jerr := json.Marshal(&res)

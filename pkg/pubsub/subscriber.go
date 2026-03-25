@@ -12,25 +12,28 @@ type Subscription struct {
 	SubscriberId  string `json:"subscriberId"`
 	EventType     string `json:"eventType"`
 	LastAckOffset uint64 `json:"lastAckOffset"`
-	deliverBuf    *deliveryBuf
+	inbox         chan delivery
+	policy        SlowSubscriberPolicy
+	onError       OnDeliveryError
+	closeOnce     sync.Once
 }
+
+type OnDeliveryError func(delivery, error)
 
 func NewSubscription(subscriberId, eventType string,
 	fn DeliverFunc, slowPolicy SlowSubscriberPolicy,
-	onError func(d delivery, err error),
+	onError OnDeliveryError,
 ) *Subscription {
 	s := &Subscription{
 		ID:           uuid.New().String(),
 		SubscriberId: subscriberId,
 		EventType:    eventType,
-		deliverBuf: &deliveryBuf{
-			buf:     make(chan delivery, 16),
-			policy:  slowPolicy,
-			onError: onError,
-		},
+		policy:       slowPolicy,
+		onError:      onError,
+		inbox:        make(chan delivery, 16),
 	}
 
-	go s.deliverBuf.consume(fn)
+	go s.handleInbox(fn)
 
 	return s
 }
@@ -52,7 +55,7 @@ func NewRegistry() *Registry {
 
 func (r *Registry) Subscribe(
 	subscriberID, eventType string, fn DeliverFunc,
-	policy SlowSubscriberPolicy, onError func(delivery, error),
+	policy SlowSubscriberPolicy, onError OnDeliveryError,
 ) (*Subscription, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -71,6 +74,9 @@ func (r *Registry) Subscribe(
 func (r *Registry) Unsubscribe(subscriptionId string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if sub, ok := r.bySubscription[subscriptionId]; ok {
+		sub.closeOnce.Do(func() { close(sub.inbox) })
+	}
 	deleteSubscription(r.byEventType, subscriptionId)
 	deleteSubscription(r.bySubscriber, subscriptionId)
 	delete(r.bySubscription, subscriptionId)
@@ -80,6 +86,10 @@ func (r *Registry) Unsubscribe(subscriptionId string) error {
 func (r *Registry) Restore(sub *Subscription) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if sub.inbox == nil {
+		sub.inbox = make(chan delivery, 16)
+	}
 
 	r.byEventType[sub.EventType] = append(r.byEventType[sub.EventType], sub)
 	r.bySubscriber[sub.SubscriberId] = append(r.bySubscriber[sub.SubscriberId], sub)
@@ -150,16 +160,23 @@ func (r *Registry) Reattach(
 
 	for _, sub := range subs {
 		if sub.EventType == eventType {
-			sub.deliverBuf = &deliveryBuf{
-				buf:     make(chan delivery, 16),
-				policy:  policy,
-				onError: onError,
-			}
-			go sub.deliverBuf.consume(fn)
+			sub.inbox = make(chan delivery, 16)
+			sub.policy = policy
+			sub.onError = onError
+
+			go sub.handleInbox(fn)
 			return nil
 		}
 	}
 	return fmt.Errorf("subscription for subscriber %s and event %s not found", subscriberId, eventType)
+}
+
+func (s *Subscription) handleInbox(fn DeliverFunc) {
+	for d := range s.inbox {
+		if err := fn(d.event, d.offset); err != nil && s.onError != nil {
+			s.onError(d, err)
+		}
+	}
 }
 
 func DefaultDeliverFunc(e Event, offset uint64) error {
@@ -174,23 +191,7 @@ const (
 	Disconnect
 )
 
-type deliveryBuf struct {
-	buf     chan delivery
-	policy  SlowSubscriberPolicy
-	onError func(d delivery, err error)
-}
-
 type delivery struct {
 	event  Event
 	offset uint64
-}
-
-func (b *deliveryBuf) consume(fn DeliverFunc) {
-	for e := range b.buf {
-		if err := fn(e.event, e.offset); err != nil {
-			if b.onError != nil {
-				b.onError(e, err)
-			}
-		}
-	}
 }

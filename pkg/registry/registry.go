@@ -38,8 +38,8 @@ func NewPersistentRegistry(s Store) (*PersistentRegistry, error) {
 	return pr, nil
 }
 
-func (r *PersistentRegistry) Subscribe(subscriberId, eventType string, fn pubsub.DeliverFunc) (*pubsub.Subscription, error) {
-	s, err := r.Registry.Subscribe(subscriberId, eventType, fn)
+func (r *PersistentRegistry) Subscribe(subscriberId, eventType string, fn pubsub.DeliverFunc, policy pubsub.SlowSubscriberPolicy, onError pubsub.OnDeliveryError) (*pubsub.Subscription, error) {
+	s, err := r.Registry.Subscribe(subscriberId, eventType, fn, policy, onError)
 	if err != nil {
 		return nil, err
 	}

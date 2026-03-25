@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testOnError(d delivery, err error) {
-	return
-}
+func testOnError(d delivery, err error) {}
 
 func TestAckUpdatesSubscriptionOffset(t *testing.T) {
 	r := NewRegistry()
@@ -29,7 +27,7 @@ func TestAckUpdatesSubscriptionOffset(t *testing.T) {
 
 func TestPublishPassesCorrectOffsetToDeliver(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{PoolWorkers: 10})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")
@@ -45,10 +43,12 @@ func TestPublishPassesCorrectOffsetToDeliver(t *testing.T) {
 	_, err = r.Subscribe(s, e, deliverOffsetChecker(&size, &wg), Drop, testOnError)
 	require.NoError(t, err)
 
-	wg.Add(2)
+	wg.Add(1)
 	require.NoError(t, b.Publish(testEvent))
+	wg.Wait()
 	assert.Equal(t, uint64(0), size)
 
+	wg.Add(1)
 	require.NoError(t, b.Publish(testEvent))
 	wg.Wait()
 	// +4 for the length prefix header
@@ -57,7 +57,7 @@ func TestPublishPassesCorrectOffsetToDeliver(t *testing.T) {
 
 func TestReplayDeliversAllEventsNotAcked(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{PoolWorkers: 10})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")
@@ -95,7 +95,7 @@ func TestReplayDeliversAllEventsNotAcked(t *testing.T) {
 
 func TestReplayFromStart(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{PoolWorkers: 10})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")

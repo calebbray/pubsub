@@ -54,7 +54,8 @@ func TestDeliveryFailsRetriesSendsToDLQ(t *testing.T) {
 			MaxRetries: 3,
 			Delay:      10 * time.Millisecond,
 		},
-		Dlq: &DeadLetterQueue{utils.NewTestLog(1024)},
+		Dlq:         &DeadLetterQueue{utils.NewTestLog(1024)},
+		PoolWorkers: 10,
 	})
 	e := "test-event"
 	p := "publisher"
@@ -88,7 +89,8 @@ func TestSuccessfulDeliveryEmptyDLQ(t *testing.T) {
 			MaxRetries: 3,
 			Delay:      10 * time.Millisecond,
 		},
-		Dlq: &DeadLetterQueue{utils.NewTestLog(1024)},
+		Dlq:         &DeadLetterQueue{utils.NewTestLog(1024)},
+		PoolWorkers: 10,
 	})
 	e := "test-event"
 	p := "publisher"
@@ -115,7 +117,8 @@ func TestSuccessfulDeliveryEmptyDLQ(t *testing.T) {
 func TestZeroRetriesSendToDLQ(t *testing.T) {
 	r := NewRegistry()
 	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{
-		Dlq: &DeadLetterQueue{utils.NewTestLog(1024)},
+		Dlq:         &DeadLetterQueue{utils.NewTestLog(1024)},
+		PoolWorkers: 10,
 	})
 	e := "test-event"
 	p := "publisher"

@@ -122,7 +122,7 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 
 func TestPublishSubsciberFailsToOneSub(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{})
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{PoolWorkers: 10})
 	e := "test-event"
 	p := "publisher"
 	d := []byte("Hello, World")
@@ -148,7 +148,7 @@ func TestPublishSubsciberFailsToOneSub(t *testing.T) {
 
 func TestSlowSubscriberDropPolicy(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{})
+	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{PoolWorkers: 10})
 	e := "test-event"
 
 	block := make(chan struct{})
@@ -161,7 +161,7 @@ func TestSlowSubscriberDropPolicy(t *testing.T) {
 	}, Drop, testOnError)
 	require.NoError(t, err)
 
-	for i := range 20 {
+	for i := range 100 {
 		b.Publish(NewEvent(e, "publisher", fmt.Appendf(nil, "event-%d", i)))
 	}
 
@@ -171,12 +171,12 @@ func TestSlowSubscriberDropPolicy(t *testing.T) {
 		return received.Load() >= 1
 	}, time.Second, 10*time.Millisecond)
 
-	assert.Less(t, int(received.Load()), 20)
+	assert.Less(t, int(received.Load()), 100)
 }
 
 func TestSlowSubscriberDisconnectPolicy(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{})
+	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{PoolWorkers: 10})
 	e := "test-event"
 
 	block := make(chan struct{})
@@ -201,7 +201,7 @@ func TestSlowSubscriberDisconnectPolicy(t *testing.T) {
 
 func TestSlowSubscriberDoesntBlockFastOne(t *testing.T) {
 	r := NewRegistry()
-	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{})
+	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{PoolWorkers: 10})
 	e := "test-event"
 
 	block := make(chan struct{})

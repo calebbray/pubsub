@@ -2,6 +2,7 @@ package registry
 
 import (
 	"path"
+	"sync"
 	"testing"
 
 	"pipelines/pkg/pubsub"
@@ -19,7 +20,7 @@ func TestSubscriptionPersistentToDisk(t *testing.T) {
 	pr, err := NewPersistentRegistry(fs)
 	require.NoError(t, err)
 
-	_, err = pr.Subscribe("caleb", "test-event", nil)
+	_, err = pr.Subscribe("caleb", "test-event", nil, pubsub.Drop, pubsub.TestOnDeliveryError)
 	require.NoError(t, err)
 	require.NoError(t, fs.fd.Close())
 
@@ -46,7 +47,7 @@ func TestUnsubscriptionOnDisk(t *testing.T) {
 	pr, err := NewPersistentRegistry(fs)
 	require.NoError(t, err)
 
-	_, err = pr.Subscribe("caleb", "test-event", nil)
+	_, err = pr.Subscribe("caleb", "test-event", nil, pubsub.Drop, pubsub.TestOnDeliveryError)
 	require.NoError(t, err)
 	require.NoError(t, fs.fd.Close())
 
@@ -83,20 +84,32 @@ func TestReattachDeliverFunc(t *testing.T) {
 	require.NoError(t, err)
 
 	b := pubsub.NewEventBus(pr.Registry, utils.NewTestLog(1024), pubsub.BusOpts{})
-	count := 0
-	var sub *pubsub.Subscription
-	sub, err = pr.Subscribe("caleb", "test-event", func(e pubsub.Event, offset uint64) error {
-		count++
-		require.NoError(t, pr.Ack(sub.ID, offset))
-		return nil
-	})
-	require.NoError(t, err)
-	require.NoError(t, b.Publish(pubsub.NewEvent("test-event", "foo", nil)))
-	require.NoError(t, b.Publish(pubsub.NewEvent("test-event", "foo", nil)))
 
-	assert.Equal(t, 2, count)
+	var wg sync.WaitGroup
+	count := 0
+	var lastOffset uint64
+	var sub *pubsub.Subscription
+
+	sub, err = pr.Subscribe("caleb", "test-event", func(e pubsub.Event, offset uint64) error {
+		lastOffset = offset
+		count++
+		wg.Done()
+		return nil
+	}, pubsub.Drop, pubsub.TestOnDeliveryError)
+	require.NoError(t, err)
+
+	// publish one event, wait for delivery
+	wg.Add(1)
+	require.NoError(t, b.Publish(pubsub.NewEvent("test-event", "foo", nil)))
+	wg.Wait()
+
+	assert.Equal(t, 1, count)
+
+	// persist ack explicitly after goroutine finishes
+	require.NoError(t, pr.Ack(sub.ID, lastOffset))
 	require.NoError(t, fs.fd.Close())
 
+	// reopen — simulate restart
 	fs, err = NewFileStore(p)
 	require.NoError(t, err)
 
@@ -105,19 +118,23 @@ func TestReattachDeliverFunc(t *testing.T) {
 
 	foundSub := pr.Registry.GetSubscriptionById(sub.ID)
 	require.NotNil(t, foundSub)
+	assert.Equal(t, lastOffset, foundSub.LastAckOffset, "ack offset persisted correctly")
 
-	assert.True(t, foundSub.LastAckOffset > 0, "ack is persistent")
-
-	require.NoError(t, pr.Reattach("caleb", "test-event", deliverFuncCounter(&count)))
+	// reattach with new deliver func
+	wg.Add(1)
+	require.NoError(t, pr.Reattach("caleb", "test-event", deliverFuncCounter(&count, &wg), pubsub.Drop, pubsub.TestOnDeliveryError))
 
 	b = pubsub.NewEventBus(pr.Registry, utils.NewTestLog(1024), pubsub.BusOpts{})
 	require.NoError(t, b.Publish(pubsub.NewEvent("test-event", "foo", nil)))
-	assert.Equal(t, 3, count)
+	wg.Wait()
+
+	assert.Equal(t, 2, count)
 }
 
-func deliverFuncCounter(count *int) pubsub.DeliverFunc {
+func deliverFuncCounter(count *int, wg *sync.WaitGroup) pubsub.DeliverFunc {
 	return func(e pubsub.Event, o uint64) error {
 		*count++
+		wg.Done()
 		return nil
 	}
 }
