@@ -33,8 +33,8 @@ Section 5 — Pub/Sub
 ✅: Offsets and acks (tracking subscriber progress)
 ✅: Retry and DLQ (redelivery on failure, dead letter queue)
 ✅: Backpressure and slow subscriber detection
-❌: Concurrent fan-out with bounded goroutines
-❌: DLQ inspection and replay API
+✅: Concurrent fan-out with bounded goroutines
+✅: DLQ inspection and replay API
 
 Section 6 — Registry
 ✅: Subscription storage (persisting subscriptions to disk)

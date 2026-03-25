@@ -2,6 +2,8 @@ package session_test
 
 import (
 	"fmt"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -14,8 +16,10 @@ import (
 )
 
 func TestSessionsAreUnique(t *testing.T) {
+	logger := utils.NewJSONLogger(os.Stderr, nil)
 	srv := utils.NewTestServer(t, transport.ServerOpts{
 		Handler: utils.EchoConnHandler{},
+		Logger:  logger,
 	})
 
 	c1, err := transport.Dial(srv.Addr())
@@ -33,8 +37,10 @@ func TestSessionsAreUnique(t *testing.T) {
 }
 
 func TestSessionCreatedTime(t *testing.T) {
+	logger := utils.NewJSONLogger(os.Stderr, nil)
 	srv := utils.NewTestServer(t, transport.ServerOpts{
 		Handler: utils.EchoConnHandler{},
+		Logger:  logger,
 	})
 
 	conn, err := transport.Dial(srv.Addr())
@@ -54,6 +60,7 @@ func TestHandshakeAndCapabilities(t *testing.T) {
 			Handler:           transport.EchoFrameHandler{},
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{1},
+			Logger:            utils.NoOpLogger(),
 		},
 	})
 
@@ -68,6 +75,7 @@ func TestInvalidHandshake(t *testing.T) {
 		Handler: session.SessionHandler{
 			Handler:    transport.EchoFrameHandler{},
 			ValidToken: "mysecrettoken",
+			Logger:     utils.NoOpLogger(),
 		},
 	})
 
@@ -83,6 +91,7 @@ func TestInvalidCapabilities(t *testing.T) {
 			Handler:           transport.EchoFrameHandler{},
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{2, 3},
+			Logger:            utils.NoOpLogger(),
 		},
 	})
 
@@ -98,6 +107,7 @@ func TestServerPicksUpLatestCapability(t *testing.T) {
 			Handler:           transport.EchoFrameHandler{},
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{2, 3},
+			Logger:            utils.NoOpLogger(),
 		},
 	})
 
@@ -160,6 +170,7 @@ func TestMultipleSessionRateLimits(t *testing.T) {
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{1},
 			RateLimit:         &session.RateLimitOpts{Limit: 5, BurstSize: 10},
+			Logger:            utils.NoOpLogger(),
 		},
 	})
 
@@ -209,6 +220,7 @@ func TestUnlimitedFrameRateLimit(t *testing.T) {
 			Handler:           transport.EchoFrameHandler{},
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{1},
+			Logger:            utils.NoOpLogger(),
 		},
 	})
 
@@ -237,6 +249,7 @@ func TestClientHeartbeatSendsPings(t *testing.T) {
 func TestIdleConnectionClosesAfterTimeout(t *testing.T) {
 	srv := utils.NewTestServer(t, transport.ServerOpts{
 		Handler: session.SessionHandler{
+			Logger:            utils.NoOpLogger(),
 			Handler:           transport.EchoFrameHandler{},
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{1},
@@ -287,6 +300,7 @@ func TestServerGeneratesNewSessionToken(t *testing.T) {
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{1},
 			Store:             session.NewInMemoryStore(),
+			Logger:            utils.NoOpLogger(),
 		},
 	})
 
@@ -300,6 +314,7 @@ func newHeartbeatTestSession(t *testing.T) (*session.Session, *transport.Server)
 	t.Helper()
 	srv := utils.NewTestServer(t, transport.ServerOpts{
 		Handler: session.SessionHandler{
+			Logger:            utils.NoOpLogger(),
 			Handler:           transport.EchoFrameHandler{},
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{1},
@@ -390,6 +405,7 @@ func newValidatedTestSession(t *testing.T) (*session.Session, *transport.Server)
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{1},
 			RateLimit:         &session.RateLimitOpts{Limit: 5, BurstSize: 10},
+			Logger:            utils.NoOpLogger(),
 		},
 	})
 
@@ -400,9 +416,12 @@ func newValidatedTestSession(t *testing.T) (*session.Session, *transport.Server)
 
 func newSessionStoreServer(t *testing.T) (*transport.Server, *session.InMemoryStore) {
 	t.Helper()
+	logger := utils.NewJSONLogger(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
 	store := session.NewInMemoryStore()
 	srv := utils.NewTestServer(t, transport.ServerOpts{
+		Logger: logger.With("component", "transport"),
 		Handler: session.SessionHandler{
+			Logger:            logger.With("component", "session"),
 			Handler:           transport.EchoFrameHandler{},
 			ValidToken:        "mysecrettoken",
 			SupportedVersions: []uint8{1},
@@ -422,6 +441,7 @@ func newSessionStorServerWithTTL(t *testing.T, ttl time.Duration) (*transport.Se
 			SupportedVersions: []uint8{1},
 			Store:             store,
 			SessionTTL:        ttl,
+			Logger:            utils.NoOpLogger(),
 		},
 	})
 	return srv, store

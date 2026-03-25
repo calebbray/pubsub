@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testOnError(d delivery, err error) {}
+func testOnError(d Delivery, err error) {}
 
 func TestAckUpdatesSubscriptionOffset(t *testing.T) {
 	r := NewRegistry()

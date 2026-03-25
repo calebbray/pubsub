@@ -247,3 +247,5 @@ func errDeliverCounter(count *int, wg *sync.WaitGroup) DeliverFunc {
 		return fmt.Errorf("simluating error")
 	}
 }
+
+func NoOpOnDeliveryError(Delivery, error) {}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"testing"
 
@@ -11,10 +12,20 @@ import (
 	"pipelines/pkg/transport"
 )
 
+func NewJSONLogger(w io.Writer, opts *slog.HandlerOptions) *slog.Logger {
+	return slog.New(slog.NewJSONHandler(w, opts))
+}
+
+func NoOpLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func NewTestServer(t *testing.T, opts transport.ServerOpts) *transport.Server {
 	t.Helper()
 	s := transport.NewServer(":0", opts)
-	go s.Run()
+	go s.Run(func(addr string) {
+		s.Logger.Info("server running...", "port", addr)
+	})
 	<-s.Ready()
 	t.Cleanup(func() { s.Close() })
 	return s
@@ -110,5 +121,12 @@ func (l *TestLog) Close() error {
 }
 
 func (l *TestLog) Sync() error {
+	return nil
+}
+
+func (l *TestLog) Truncate(size int64) error {
+	newData := make([]byte, size)
+	copy(newData, l.data[:size])
+	l.data = newData
 	return nil
 }

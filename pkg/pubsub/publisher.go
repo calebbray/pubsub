@@ -3,6 +3,7 @@ package pubsub
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	eventlog "pipelines/pkg/event_log"
@@ -34,6 +35,7 @@ type BusOpts struct {
 	Dlq         *DeadLetterQueue
 	Retry       RetryPolicy
 	PoolWorkers int
+	Logger      *slog.Logger
 }
 
 type Bus struct {
@@ -48,11 +50,21 @@ func NewEventBus(r *Registry, l *eventlog.Log, opts BusOpts) *Bus {
 	if workers == 0 {
 		workers = 3
 	}
+
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	logger = logger.With("component", "event_bus")
+
+	opts.Logger = logger
+
 	return &Bus{
 		registry: r,
 		log:      l,
 		BusOpts:  opts,
-		pool:     NewWorkerPool(workers),
+		pool:     NewWorkerPool(workers, logger),
 	}
 }
 
@@ -70,13 +82,21 @@ func (b *Bus) Publish(e Event) error {
 	subs, _ := b.registry.GetSubscriptions(e.Type)
 
 	for _, sub := range subs {
-		err := b.pool.Submit(NewJob(sub.ID, sub.inbox, delivery{e, offset}, sub.policy, b.registry.Unsubscribe))
+		err := b.pool.Submit(NewJob(sub.ID, sub.inbox, Delivery{e, offset}, sub.policy, b.registry.Unsubscribe))
 
 		if err != nil && errors.Is(err, ErrPoolFull) {
 			switch sub.policy {
 			case Drop:
+				b.Logger.Warn("subscriber inbox full, dropping event",
+					"event_id", e.ID,
+					"subscriber_id", sub.ID,
+				)
 				continue
 			case Disconnect:
+				b.Logger.Warn("subscriber inbox full, disconnecting",
+					"event_id", e.ID,
+					"subscriber_id", sub.ID,
+				)
 				b.registry.Unsubscribe(sub.ID)
 			}
 		}
@@ -86,17 +106,32 @@ func (b *Bus) Publish(e Event) error {
 
 func (b *Bus) Subscribe(subscriberId, eventType string, fn DeliverFunc, policy SlowSubscriberPolicy) (*Subscription, error) {
 	var subId string
-	onError := func(d delivery, err error) {
+	onError := func(d Delivery, err error) {
 		delivered := false
-		for range b.Retry.MaxRetries {
+		b.Logger.Warn("deliver failed",
+			"event_id", d.event.ID,
+			"subscriber_id", subId,
+			"error", err,
+		)
+		for i := range b.Retry.MaxRetries {
 			time.Sleep(b.Retry.Delay)
 			if err := fn(d.event, d.offset); err == nil {
 				delivered = true
 				break
 			}
+			b.Logger.Warn("retry failed",
+				"event_id", d.event.ID,
+				"subscriber_id", subId,
+				"retry_attempt", i,
+				"error", err,
+			)
 		}
 
 		if !delivered && b.Dlq != nil {
+			b.Logger.Error("retries exhausted, writing to DLQ",
+				"event_id", d.event.ID,
+				"subscriberId", subId,
+			)
 			b.Dlq.Append(d.event, err.Error(), subId)
 		}
 	}
@@ -128,7 +163,7 @@ func (b *Bus) Replay(subscriptionId string) error {
 			return err
 		}
 		b.pool.Submit(
-			NewJob(s.ID, s.inbox, delivery{e, logs.Offset()}, s.policy, b.registry.Unsubscribe),
+			NewJob(s.ID, s.inbox, Delivery{e, logs.Offset()}, s.policy, b.registry.Unsubscribe),
 		)
 	}
 	return nil
@@ -145,5 +180,3 @@ func decodeEvent(p []byte) (Event, error) {
 	}
 	return e, nil
 }
-
-func TestOnDeliveryError(delivery, error) {}

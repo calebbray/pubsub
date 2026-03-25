@@ -1,23 +1,27 @@
 package pubsub
 
-import "errors"
+import (
+	"errors"
+	"log/slog"
+)
 
 type WorkerPool struct {
 	workers int
 	jobs    chan Job
+	logger  *slog.Logger
 }
 
 type Job struct {
-	inbox        chan delivery
-	delivery     delivery
+	inbox        chan Delivery
+	delivery     Delivery
 	policy       SlowSubscriberPolicy
 	subId        string
 	onDisconnect func(subId string) error
 }
 
 func NewJob(
-	subId string, inbox chan delivery,
-	d delivery, policy SlowSubscriberPolicy,
+	subId string, inbox chan Delivery,
+	d Delivery, policy SlowSubscriberPolicy,
 	onDisconnect func(subId string) error,
 ) Job {
 	return Job{
@@ -29,10 +33,16 @@ func NewJob(
 	}
 }
 
-func NewWorkerPool(workers int) *WorkerPool {
+func NewWorkerPool(workers int, logger *slog.Logger) *WorkerPool {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	logger = logger.With("component", "worker_pool")
 	p := &WorkerPool{
 		workers: workers,
 		jobs:    make(chan Job, workers),
+		logger:  logger,
 	}
 
 	for range workers {
@@ -52,7 +62,15 @@ func (p *WorkerPool) work() {
 			default:
 				switch job.policy {
 				case Drop:
+					p.logger.Warn("subscriber inbox full, dropping event",
+						"event_id", job.delivery.event.ID,
+						"subscriber_id", job.subId,
+					)
 				case Disconnect:
+					p.logger.Warn("subscriber inbox full, disconnecting",
+						"event_id", job.delivery.event.ID,
+						"subscriber_id", job.subId,
+					)
 					job.onDisconnect(job.subId)
 				}
 			}

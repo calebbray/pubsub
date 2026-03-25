@@ -2,6 +2,8 @@ package transport_test
 
 import (
 	"context"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -14,7 +16,6 @@ import (
 
 func TestDialClosedServerFails(t *testing.T) {
 	s := utils.NewTestServer(t, transport.ServerOpts{
-		Logger:  utils.LogWriter{},
 		Handler: utils.EchoConnHandler{},
 	})
 	s.Close()
@@ -26,8 +27,10 @@ func TestDialClosedServerFails(t *testing.T) {
 // Handler receives the right bytes and echos
 func TestHandlingFrames(t *testing.T) {
 	s := utils.NewTestServer(t, transport.ServerOpts{
-		Logger:  utils.LogWriter{},
 		Handler: utils.EchoConnHandler{},
+		Logger: utils.NewJSONLogger(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}),
 	})
 
 	conn, err := transport.Dial(s.Addr())
@@ -45,7 +48,6 @@ func TestHandlingFrames(t *testing.T) {
 
 func TestHandlingMultipleFrames(t *testing.T) {
 	s := utils.NewTestServer(t, transport.ServerOpts{
-		Logger:  utils.LogWriter{},
 		Handler: utils.EchoConnHandler{},
 	})
 
@@ -75,7 +77,6 @@ func TestHandlingMultipleFrames(t *testing.T) {
 
 func TestHandlingMultipleConnections(t *testing.T) {
 	s := utils.NewTestServer(t, transport.ServerOpts{
-		Logger:  utils.LogWriter{},
 		Handler: utils.EchoConnHandler{},
 	})
 
@@ -104,7 +105,6 @@ func TestHandlingMultipleConnections(t *testing.T) {
 
 func TestSlowClientMissesDeadline(t *testing.T) {
 	s := utils.NewTestServer(t, transport.ServerOpts{
-		Logger:  utils.LogWriter{},
 		Handler: utils.EchoConnHandler{},
 		DeadlineConfig: transport.DeadlineConfig{
 			ReadTimeout:  50 * time.Millisecond,

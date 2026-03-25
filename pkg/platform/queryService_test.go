@@ -69,9 +69,9 @@ func bootstrapQueryService(t *testing.T) *QueryService {
 	reg, err := registry.NewPersistentRegistry(fs)
 	require.NoError(t, err)
 
-	_, err = reg.Subscribe("caleb", eventType, noOpDeliverFunc, pubsub.Drop, pubsub.TestOnDeliveryError)
+	_, err = reg.Subscribe("caleb", eventType, noOpDeliverFunc, pubsub.Drop, noOpOnError)
 	require.NoError(t, err)
-	_, err = reg.Subscribe("bray", eventType, noOpDeliverFunc, pubsub.Drop, pubsub.TestOnDeliveryError)
+	_, err = reg.Subscribe("bray", eventType, noOpDeliverFunc, pubsub.Drop, noOpOnError)
 	require.NoError(t, err)
 
 	state := NewStateProjection()
@@ -89,6 +89,8 @@ func bootstrapQueryService(t *testing.T) *QueryService {
 	qs := NewQueryService(state, catalog, reg)
 	return qs
 }
+
+func noOpOnError(pubsub.Delivery, error) {}
 
 func noOpDeliverFunc(e pubsub.Event, offset uint64) error {
 	return nil

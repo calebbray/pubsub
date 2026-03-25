@@ -185,6 +185,13 @@ func (l *TestLog) WriteAt(p []byte, offset int64) (n int, err error) {
 	return n, err
 }
 
+func (l *TestLog) Truncate(size int64) error {
+	newData := make([]byte, size)
+	copy(newData, l.data[:size])
+	l.data = newData
+	return nil
+}
+
 func (l *TestLog) Close() error {
 	return nil
 }

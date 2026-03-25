@@ -33,7 +33,7 @@ func errorHandler(payload []byte) ([]byte, error) {
 }
 
 func TestRegisterHandlerAndCallIt(t *testing.T) {
-	rpcServer := NewServer()
+	rpcServer := NewServer(ServerOpts{})
 	rpcServer.Register("/foo", handlerLogger(t, testHandler))
 	rpcServer.Register("/bar", handlerLogger(t, testHandler2))
 
@@ -54,7 +54,7 @@ func TestRegisterHandlerAndCallIt(t *testing.T) {
 }
 
 func TestUnregisteredHandlerReturnsError(t *testing.T) {
-	rpcServer := NewServer()
+	rpcServer := NewServer(ServerOpts{})
 
 	transportServer := utils.NewTestServer(t, transport.ServerOpts{
 		Handler: rpcServer,
@@ -71,7 +71,7 @@ func TestUnregisteredHandlerReturnsError(t *testing.T) {
 }
 
 func TestHandlerReturnsError(t *testing.T) {
-	rpcServer := NewServer()
+	rpcServer := NewServer(ServerOpts{})
 	rpcServer.Register("/foo", errorHandler)
 
 	transportServer := utils.NewTestServer(t, transport.ServerOpts{

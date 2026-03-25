@@ -13,6 +13,8 @@ type EventLogger interface {
 	io.WriterAt
 	io.Closer
 
+	Truncate(size int64) error
+
 	Sync() error
 }
 
@@ -36,6 +38,7 @@ func NewFileLog(path string) (*Log, error) {
 
 	l.EventLogger = fd
 	l.size = uint64(info.Size())
+
 	return l, nil
 }
 
@@ -80,6 +83,10 @@ func (l *Log) Read(offset uint64) ([]byte, error) {
 	}
 
 	return buf, nil
+}
+
+func (l *Log) ResetSize() {
+	l.size = 0
 }
 
 func (l *Log) Sync() error {

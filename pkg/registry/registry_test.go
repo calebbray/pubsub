@@ -20,7 +20,7 @@ func TestSubscriptionPersistentToDisk(t *testing.T) {
 	pr, err := NewPersistentRegistry(fs)
 	require.NoError(t, err)
 
-	_, err = pr.Subscribe("caleb", "test-event", nil, pubsub.Drop, pubsub.TestOnDeliveryError)
+	_, err = pr.Subscribe("caleb", "test-event", nil, pubsub.Drop, noOpOnDeliveryError)
 	require.NoError(t, err)
 	require.NoError(t, fs.fd.Close())
 
@@ -47,7 +47,7 @@ func TestUnsubscriptionOnDisk(t *testing.T) {
 	pr, err := NewPersistentRegistry(fs)
 	require.NoError(t, err)
 
-	_, err = pr.Subscribe("caleb", "test-event", nil, pubsub.Drop, pubsub.TestOnDeliveryError)
+	_, err = pr.Subscribe("caleb", "test-event", nil, pubsub.Drop, noOpOnDeliveryError)
 	require.NoError(t, err)
 	require.NoError(t, fs.fd.Close())
 
@@ -95,7 +95,7 @@ func TestReattachDeliverFunc(t *testing.T) {
 		count++
 		wg.Done()
 		return nil
-	}, pubsub.Drop, pubsub.TestOnDeliveryError)
+	}, pubsub.Drop, noOpOnDeliveryError)
 	require.NoError(t, err)
 
 	// publish one event, wait for delivery
@@ -122,7 +122,7 @@ func TestReattachDeliverFunc(t *testing.T) {
 
 	// reattach with new deliver func
 	wg.Add(1)
-	require.NoError(t, pr.Reattach("caleb", "test-event", deliverFuncCounter(&count, &wg), pubsub.Drop, pubsub.TestOnDeliveryError))
+	require.NoError(t, pr.Reattach("caleb", "test-event", deliverFuncCounter(&count, &wg), pubsub.Drop, noOpOnDeliveryError))
 
 	b = pubsub.NewEventBus(pr.Registry, utils.NewTestLog(1024), pubsub.BusOpts{})
 	require.NoError(t, b.Publish(pubsub.NewEvent("test-event", "foo", nil)))
@@ -138,3 +138,5 @@ func deliverFuncCounter(count *int, wg *sync.WaitGroup) pubsub.DeliverFunc {
 		return nil
 	}
 }
+
+func noOpOnDeliveryError(pubsub.Delivery, error) {}

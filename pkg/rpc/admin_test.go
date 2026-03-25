@@ -62,7 +62,7 @@ func TestAdminMetricHandler(t *testing.T) {
 func newRPCServer(t *testing.T) *Server {
 	t.Helper()
 
-	srv := NewServer()
+	srv := NewServer(ServerOpts{})
 	tr := utils.NewTestServer(t, transport.ServerOpts{
 		Handler: srv,
 	})

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"log/slog"
+	"os"
 	"sync"
 	"testing"
 
@@ -62,11 +64,14 @@ func TestRateLimitedClientsDontMakeItToRPC(t *testing.T) {
 
 func newRPCServer(t *testing.T) *transport.Server {
 	t.Helper()
+	logger := utils.NewJSONLogger(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
 	return utils.NewTestServer(t, transport.ServerOpts{
+		Logger: logger,
 		Handler: session.SessionHandler{
+			Logger:            logger,
 			ValidToken:        "foobarbaz",
 			SupportedVersions: []uint8{1},
-			Handler:           rpc.NewServer(),
+			Handler:           rpc.NewServer(rpc.ServerOpts{Logger: logger}),
 			RateLimit: &session.RateLimitOpts{
 				BurstSize: 10,
 				Limit:     5,

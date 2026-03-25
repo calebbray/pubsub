@@ -12,13 +12,13 @@ type Subscription struct {
 	SubscriberId  string `json:"subscriberId"`
 	EventType     string `json:"eventType"`
 	LastAckOffset uint64 `json:"lastAckOffset"`
-	inbox         chan delivery
+	inbox         chan Delivery
 	policy        SlowSubscriberPolicy
 	onError       OnDeliveryError
 	closeOnce     sync.Once
 }
 
-type OnDeliveryError func(delivery, error)
+type OnDeliveryError func(Delivery, error)
 
 func NewSubscription(subscriberId, eventType string,
 	fn DeliverFunc, slowPolicy SlowSubscriberPolicy,
@@ -30,7 +30,7 @@ func NewSubscription(subscriberId, eventType string,
 		EventType:    eventType,
 		policy:       slowPolicy,
 		onError:      onError,
-		inbox:        make(chan delivery, 16),
+		inbox:        make(chan Delivery, 16),
 	}
 
 	go s.handleInbox(fn)
@@ -88,7 +88,7 @@ func (r *Registry) Restore(sub *Subscription) {
 	defer r.mu.Unlock()
 
 	if sub.inbox == nil {
-		sub.inbox = make(chan delivery, 16)
+		sub.inbox = make(chan Delivery, 16)
 	}
 
 	r.byEventType[sub.EventType] = append(r.byEventType[sub.EventType], sub)
@@ -151,7 +151,7 @@ func (r *Registry) Ack(subscriptionId string, offset uint64) error {
 
 func (r *Registry) Reattach(
 	subscriberId, eventType string, fn DeliverFunc,
-	policy SlowSubscriberPolicy, onError func(delivery, error),
+	policy SlowSubscriberPolicy, onError func(Delivery, error),
 ) error {
 	subs, ok := r.bySubscriber[subscriberId]
 	if !ok {
@@ -160,7 +160,7 @@ func (r *Registry) Reattach(
 
 	for _, sub := range subs {
 		if sub.EventType == eventType {
-			sub.inbox = make(chan delivery, 16)
+			sub.inbox = make(chan Delivery, 16)
 			sub.policy = policy
 			sub.onError = onError
 
@@ -191,7 +191,7 @@ const (
 	Disconnect
 )
 
-type delivery struct {
+type Delivery struct {
 	event  Event
 	offset uint64
 }

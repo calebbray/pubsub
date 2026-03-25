@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -25,7 +25,7 @@ type Server struct {
 type ServerOpts struct {
 	DeadlineConfig
 	Handler    ConnHandler
-	Logger     io.Writer
+	Logger     *slog.Logger
 	ValidToken string
 }
 
@@ -35,6 +35,13 @@ type DeadlineConfig struct {
 }
 
 func NewServer(addr string, opts ServerOpts) *Server {
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	logger = logger.With("component", "transport")
+	opts.Logger = logger
 	s := &Server{
 		addr:       addr,
 		ready:      make(chan struct{}),
@@ -45,15 +52,15 @@ func NewServer(addr string, opts ServerOpts) *Server {
 	return s
 }
 
-func (s *Server) Run() error {
-	if err := s.Listen(); err != nil {
+func (s *Server) Run(cb func(addr string)) error {
+	if err := s.Listen(cb); err != nil {
 		return fmt.Errorf("error while listening at (%s): %w", s.addr, err)
 	}
 
 	return nil
 }
 
-func (s *Server) Listen() error {
+func (s *Server) Listen(cb func(addr string)) error {
 	var err error
 	s.ln, err = net.Listen("tcp", s.addr)
 	if err != nil {
@@ -61,6 +68,9 @@ func (s *Server) Listen() error {
 	}
 
 	close(s.ready)
+	if cb != nil {
+		cb(s.ln.Addr().String())
+	}
 
 	for {
 		conn, err := s.ln.Accept()
@@ -68,8 +78,8 @@ func (s *Server) Listen() error {
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
-			// eventually this could maybe be some kind of slog.Error
-			return fmt.Errorf("error accepting connection: %w", err)
+			s.Logger.Error("error accepting connection", "error", err)
+			continue
 		}
 
 		s.wg.Add(1)
@@ -79,6 +89,7 @@ func (s *Server) Listen() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.Logger.Info("shutting down")
 	s.ln.Close()
 	s.tracker.closeAll()
 
@@ -90,6 +101,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-done:
+		s.Logger.Info("server shutdown gracefully")
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -116,6 +128,7 @@ func Dial(addr string) (net.Conn, error) {
 
 func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
+	s.Logger.Debug("accepted new connection", "from", conn.RemoteAddr().String())
 
 	if s.ReadTimeout > 0 || s.WriteTimeout > 0 {
 		conn = &connWithDeadline{
@@ -129,6 +142,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	defer func() {
 		s.tracker.remove(conn)
+		s.Logger.Debug("connection closed", "from", conn.RemoteAddr().String())
 		conn.Close()
 	}()
 

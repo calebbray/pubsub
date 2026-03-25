@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"time"
 
@@ -48,6 +49,7 @@ func (s *Server) metricLogMiddleware(route string, h HandlerFunc) (string, Handl
 }
 
 type Server struct {
+	ServerOpts
 	handlers    map[string]HandlerFunc
 	metrics     map[string]int
 	addr        string
@@ -56,11 +58,24 @@ type Server struct {
 	upSince time.Time
 }
 
-func NewServer() *Server {
+type ServerOpts struct {
+	Logger *slog.Logger
+}
+
+func NewServer(opts ServerOpts) *Server {
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	logger = logger.With("component", "rpc")
+	opts.Logger = logger
+
 	s := &Server{
-		handlers: make(map[string]HandlerFunc),
-		metrics:  make(map[string]int),
-		upSince:  time.Now(),
+		handlers:   make(map[string]HandlerFunc),
+		metrics:    make(map[string]int),
+		upSince:    time.Now(),
+		ServerOpts: opts,
 	}
 
 	s.Register(s.metricLogMiddleware("/_admin/health", s.handleHealth))
@@ -73,6 +88,7 @@ func NewServer() *Server {
 func (s *Server) HandleFrame(w io.Writer, frame []byte) error {
 	msg, err := Decode(frame)
 	if err != nil {
+		s.Logger.Error("failed to decode frame", "error", err)
 		msg.Kind = KindError
 		msg.Payload = []byte("internal server error")
 		return transport.WriteFrame(w, Encode(msg))
@@ -80,6 +96,7 @@ func (s *Server) HandleFrame(w io.Writer, frame []byte) error {
 
 	fn, ok := s.handlers[msg.Method]
 	if !ok {
+		s.Logger.Warn("unregistered method called", "method", msg.Method)
 		msg.Kind = KindError
 		msg.Payload = []byte("no route associated with given method")
 		return transport.WriteFrame(w, Encode(msg))
@@ -87,6 +104,7 @@ func (s *Server) HandleFrame(w io.Writer, frame []byte) error {
 
 	response, err := fn(msg.Payload)
 	if err != nil {
+		s.Logger.Warn("handler returned error", "method", msg.Method, "error", err)
 		msg.Kind = KindError
 		msg.Payload = fmt.Appendf(nil, "%s", err)
 		return transport.WriteFrame(w, Encode(msg))
@@ -98,14 +116,20 @@ func (s *Server) HandleFrame(w io.Writer, frame []byte) error {
 }
 
 func (s *Server) HandleConn(conn net.Conn) {
-	defer conn.Close()
+	s.Logger.Debug("rpc connection opened", "remote_addr", conn.RemoteAddr())
+	defer func() {
+		s.Logger.Debug("rpc connection closed", "remote_addr", conn.RemoteAddr())
+		conn.Close()
+	}()
 	for {
 		frame, err := transport.ReadFrame(conn)
 		if err != nil {
 			return
 		}
 
-		s.HandleFrame(conn, frame)
+		if err := s.HandleFrame(conn, frame); err != nil {
+			return
+		}
 	}
 }
 

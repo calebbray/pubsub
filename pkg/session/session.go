@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -104,10 +105,16 @@ type SessionHandler struct {
 	Heartbeat         HeartbeatConfig
 	Store             SessionStore
 	SessionTTL        time.Duration
+	Logger            *slog.Logger
 }
 
 func (h SessionHandler) HandleConn(conn net.Conn) {
 	defer conn.Close()
+	if h.Logger == nil {
+		h.Logger = slog.Default()
+	} else {
+		h.Logger = h.Logger.With("component", "session")
+	}
 
 	s := New(conn, SessionOpts{RateLimitOpts: h.RateLimit})
 
@@ -115,9 +122,12 @@ func (h SessionHandler) HandleConn(conn net.Conn) {
 		return
 	}
 
+	h.Logger.Info("successful session handshake", "clientId", s.clientId, "version", s.version)
+
 	var idleTimer *time.Timer
 	if h.Heartbeat.Timeout > 0 {
 		idleTimer = time.AfterFunc(h.Heartbeat.Timeout, func() {
+			h.Logger.Warn("idle timeout", "session", s.Id())
 			conn.Close()
 		})
 		defer idleTimer.Stop()
@@ -159,6 +169,7 @@ func (h SessionHandler) HandleConn(conn net.Conn) {
 func (h SessionHandler) handleServerHello(s *Session) error {
 	req, err := s.validateServerHandshake(h.ValidToken)
 	if err != nil {
+		h.Logger.Warn("invalid session handshake", "session", s.Id(), "reason", err)
 		return err
 	}
 
@@ -191,6 +202,9 @@ func (h SessionHandler) handleServerHello(s *Session) error {
 
 	if !res.Resumed {
 		if err := s.ServerNegotiate(h.SupportedVersions); err != nil {
+			if errors.Is(err, ErrUnsupportedVersion) {
+				h.Logger.Warn("invalid version protocol", "session", s.Id(), "reason", err)
+			}
 			return err
 		}
 	}
