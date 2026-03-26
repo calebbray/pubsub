@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"pipelines/pkg/metrics"
 	"pipelines/pkg/transport"
 	"pipelines/pkg/utils"
 
@@ -19,11 +20,11 @@ func TestAdminHealthHandler(t *testing.T) {
 	msg, err := c.Send("/_admin/health", nil)
 	require.NoError(t, err)
 
-	var res healthResponse
+	var res HealthStatus
 	err = json.Unmarshal(msg.Payload, &res)
 	require.NoError(t, err)
 
-	assert.Equal(t, "ok", res.Status)
+	assert.True(t, res.OK)
 }
 
 func TestAdminStatusHandler(t *testing.T) {
@@ -39,7 +40,7 @@ func TestAdminStatusHandler(t *testing.T) {
 	err = json.Unmarshal(msg.Payload, &res)
 	require.NoError(t, err)
 
-	assert.Equal(t, 3, res.MethodCount)
+	assert.Equal(t, 4, res.MethodCount)
 	assert.True(t, res.Uptime > 0)
 }
 
@@ -59,10 +60,76 @@ func TestAdminMetricHandler(t *testing.T) {
 	assert.Equal(t, 1, res.Counts["/_admin/metrics"])
 }
 
+func TestAdminReadyHandler(t *testing.T) {
+	srv := newRPCServer(t)
+
+	c := newRPCTestClient(t, srv.Addr())
+	defer c.Close()
+
+	msg, err := c.Send("/_admin/ready", nil)
+	require.NoError(t, err)
+
+	var res HealthStatus
+	err = json.Unmarshal(msg.Payload, &res)
+	require.NoError(t, err)
+
+	// We haven't configured any subscribers so this should be false
+	assert.False(t, res.OK)
+}
+
+func TestReadyEndpointReturnsTrueWithActiveSubscribers(t *testing.T) {
+	srv := newRPCServer(t)
+
+	c := newRPCTestClient(t, srv.Addr())
+	defer c.Close()
+
+	// simulate an active subscriber
+	srv.Metrics.Gauge("subscribers.active").Inc()
+
+	msg, err := c.Send("/_admin/ready", nil)
+	require.NoError(t, err)
+
+	var status HealthStatus
+	require.NoError(t, json.Unmarshal(msg.Payload, &status))
+	assert.True(t, status.OK)
+}
+
+func TestCustomHealthCheckerCanBeInjected(t *testing.T) {
+	rpcSrv := NewServer(ServerOpts{
+		HealthChecker: alwaysUnhealthyChecker{},
+	})
+
+	srv := utils.NewTestServer(t, transport.ServerOpts{
+		Handler: rpcSrv,
+	})
+
+	c := newRPCTestClient(t, srv.Addr())
+	defer c.Close()
+
+	msg, err := c.Send("/_admin/health", nil)
+	require.NoError(t, err)
+
+	var status HealthStatus
+	require.NoError(t, json.Unmarshal(msg.Payload, &status))
+	assert.False(t, status.OK)
+	assert.Equal(t, "custom unhealthy", status.Message)
+}
+
+type alwaysUnhealthyChecker struct{}
+
+func (a alwaysUnhealthyChecker) Health() HealthStatus {
+	return HealthStatus{OK: false, Message: "custom unhealthy"}
+}
+
+func (a alwaysUnhealthyChecker) Ready() HealthStatus {
+	return HealthStatus{OK: false, Message: "custom not ready"}
+}
+
 func newRPCServer(t *testing.T) *Server {
 	t.Helper()
 
-	srv := NewServer(ServerOpts{})
+	metrics := metrics.NewRegistry()
+	srv := NewServer(ServerOpts{Metrics: metrics})
 	tr := utils.NewTestServer(t, transport.ServerOpts{
 		Handler: srv,
 	})

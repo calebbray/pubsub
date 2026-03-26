@@ -8,17 +8,52 @@ import (
 	"net"
 	"time"
 
+	"pipelines/pkg/metrics"
 	"pipelines/pkg/transport"
 )
 
 type HandlerFunc func(payload []byte) ([]byte, error)
+
+type HealthChecker interface {
+	Health() HealthStatus
+	Ready() HealthStatus
+}
+
+type HealthStatus struct {
+	OK      bool              `json:"ok"`
+	Message string            `json:"message"`
+	Details map[string]string `json:"details"`
+}
+
+type HealthCheck struct {
+	metrics metrics.MetricsProvider
+}
+
+func (hc HealthCheck) Health() HealthStatus {
+	return HealthStatus{
+		OK:      true,
+		Message: "healthy",
+	}
+}
+
+func (hc HealthCheck) Ready() HealthStatus {
+	ok := hc.metrics.Gauge("subscribers.active").Value() > 0
+	return HealthStatus{
+		OK:      ok,
+		Message: "service ready",
+	}
+}
+
+func DefaultHealthChecker(m metrics.MetricsProvider) HealthChecker {
+	return HealthCheck{m}
+}
 
 type healthResponse struct {
 	Status string `json:"status"`
 }
 
 func (s *Server) handleHealth(_ []byte) ([]byte, error) {
-	return json.Marshal(healthResponse{Status: "ok"})
+	return json.Marshal(s.HealthChecker.Health())
 }
 
 type statusResponse struct {
@@ -41,6 +76,10 @@ func (s *Server) handleMetrics(_ []byte) ([]byte, error) {
 	return json.Marshal(metricResponse{Counts: s.metrics})
 }
 
+func (s *Server) handleReady(_ []byte) ([]byte, error) {
+	return json.Marshal(s.HealthChecker.Ready())
+}
+
 func (s *Server) metricLogMiddleware(route string, h HandlerFunc) (string, HandlerFunc) {
 	return route, func(payload []byte) ([]byte, error) {
 		s.metrics[route]++
@@ -59,7 +98,9 @@ type Server struct {
 }
 
 type ServerOpts struct {
-	Logger *slog.Logger
+	HealthChecker HealthChecker
+	Logger        *slog.Logger
+	Metrics       metrics.MetricsProvider
 }
 
 func NewServer(opts ServerOpts) *Server {
@@ -71,6 +112,14 @@ func NewServer(opts ServerOpts) *Server {
 	logger = logger.With("component", "rpc")
 	opts.Logger = logger
 
+	if opts.Metrics == nil {
+		opts.Metrics = metrics.NewRegistry()
+	}
+
+	if opts.HealthChecker == nil {
+		opts.HealthChecker = DefaultHealthChecker(opts.Metrics)
+	}
+
 	s := &Server{
 		handlers:   make(map[string]HandlerFunc),
 		metrics:    make(map[string]int),
@@ -81,6 +130,7 @@ func NewServer(opts ServerOpts) *Server {
 	s.Register(s.metricLogMiddleware("/_admin/health", s.handleHealth))
 	s.Register(s.metricLogMiddleware("/_admin/status", s.handleStatus))
 	s.Register(s.metricLogMiddleware("/_admin/metrics", s.handleMetrics))
+	s.Register(s.metricLogMiddleware("/_admin/ready", s.handleReady))
 
 	return s
 }

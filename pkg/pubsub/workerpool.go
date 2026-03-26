@@ -17,12 +17,14 @@ type Job struct {
 	policy       SlowSubscriberPolicy
 	subId        string
 	onDisconnect func(subId string) error
+	onDrop       func()
 }
 
 func NewJob(
 	subId string, inbox chan Delivery,
 	d Delivery, policy SlowSubscriberPolicy,
 	onDisconnect func(subId string) error,
+	onDrop func(),
 ) Job {
 	return Job{
 		inbox:        inbox,
@@ -30,6 +32,7 @@ func NewJob(
 		policy:       policy,
 		subId:        subId,
 		onDisconnect: onDisconnect,
+		onDrop:       onDrop,
 	}
 }
 
@@ -66,6 +69,7 @@ func (p *WorkerPool) work() {
 						"event_id", job.delivery.event.ID,
 						"subscriber_id", job.subId,
 					)
+					job.onDrop()
 				case Disconnect:
 					p.logger.Warn("subscriber inbox full, disconnecting",
 						"event_id", job.delivery.event.ID,

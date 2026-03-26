@@ -88,7 +88,9 @@ func (b *Bus) Publish(e Event) error {
 	subs, _ := b.registry.GetSubscriptions(e.Type)
 
 	for _, sub := range subs {
-		err := b.pool.Submit(NewJob(sub.ID, sub.inbox, Delivery{e, offset}, sub.policy, b.Unsubscribe))
+		err := b.pool.Submit(NewJob(sub.ID, sub.inbox, Delivery{e, offset}, sub.policy, b.Unsubscribe, func() {
+			b.Metrics.Counter("events.dropped").Inc()
+		}))
 		if err != nil && errors.Is(err, ErrPoolFull) {
 			switch sub.policy {
 			case Drop:
@@ -187,7 +189,9 @@ func (b *Bus) Replay(subscriptionId string) error {
 			return err
 		}
 		b.pool.Submit(
-			NewJob(s.ID, s.inbox, Delivery{e, logs.Offset()}, s.policy, b.Unsubscribe),
+			NewJob(s.ID, s.inbox, Delivery{e, logs.Offset()}, s.policy, b.Unsubscribe, func() {
+				b.Metrics.Counter("events.dropped").Inc()
+			}),
 		)
 	}
 	return nil

@@ -14,12 +14,14 @@ type MetricsProvider interface {
 type Counter interface {
 	Inc()
 	Add(n int64)
+	Value() int64
 }
 
 type Gauger interface {
 	Set(n int64)
 	Inc()
 	Dec()
+	Value() int64
 }
 
 type Registry struct {
