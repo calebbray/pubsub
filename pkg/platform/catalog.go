@@ -28,7 +28,7 @@ func NewArtifact(datasetName, producerId, version, schemaVersion, uri string) Ar
 		Version:       version,
 		SchemaVersion: schemaVersion,
 		URI:           uri,
-		PublishedAt:   time.Now().Round(0),
+		PublishedAt:   time.Now().UTC().Round(0),
 	}
 }
 
