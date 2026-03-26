@@ -8,6 +8,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"pipelines/pkg/metrics"
 )
 
 type Server struct {
@@ -27,6 +29,7 @@ type ServerOpts struct {
 	Handler    ConnHandler
 	Logger     *slog.Logger
 	ValidToken string
+	Metrics    metrics.MetricsProvider
 }
 
 type DeadlineConfig struct {
@@ -42,6 +45,11 @@ func NewServer(addr string, opts ServerOpts) *Server {
 
 	logger = logger.With("component", "transport")
 	opts.Logger = logger
+
+	if opts.Metrics == nil {
+		opts.Metrics = metrics.NewRegistry()
+	}
+
 	s := &Server{
 		addr:       addr,
 		ready:      make(chan struct{}),
@@ -53,14 +61,14 @@ func NewServer(addr string, opts ServerOpts) *Server {
 }
 
 func (s *Server) Run(cb func(addr string)) error {
-	if err := s.Listen(cb); err != nil {
+	if err := s.listen(cb); err != nil {
 		return fmt.Errorf("error while listening at (%s): %w", s.addr, err)
 	}
 
 	return nil
 }
 
-func (s *Server) Listen(cb func(addr string)) error {
+func (s *Server) listen(cb func(addr string)) error {
 	var err error
 	s.ln, err = net.Listen("tcp", s.addr)
 	if err != nil {
@@ -82,6 +90,7 @@ func (s *Server) Listen(cb func(addr string)) error {
 			continue
 		}
 
+		s.Metrics.Counter("connections.accepted").Inc()
 		s.wg.Add(1)
 		go s.handleConn(conn)
 
@@ -128,6 +137,8 @@ func Dial(addr string) (net.Conn, error) {
 
 func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
+	s.Metrics.Gauge("connections.active").Inc()
+	defer s.Metrics.Gauge("connections.active").Dec()
 	s.Logger.Debug("accepted new connection", "from", conn.RemoteAddr().String())
 
 	if s.ReadTimeout > 0 || s.WriteTimeout > 0 {

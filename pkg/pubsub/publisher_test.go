@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"pipelines/pkg/metrics"
 	"pipelines/pkg/utils"
 
 	"github.com/stretchr/testify/assert"
@@ -230,6 +231,105 @@ func TestSlowSubscriberDoesntBlockFastOne(t *testing.T) {
 	assert.Equal(t, int32(5), fastCount.Load())
 
 	close(block)
+}
+
+func TestBusMetricsPublish(t *testing.T) {
+	r := NewRegistry()
+	m := metrics.NewRegistry()
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{
+		PoolWorkers: 10,
+		Metrics:     m,
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	_, err := b.Subscribe("caleb", "test-event", func(e Event, offset uint64) error {
+		wg.Done()
+		return nil
+	}, Drop)
+	require.NoError(t, err)
+
+	require.NoError(t, b.Publish(NewEvent("test-event", "publisher", nil)))
+	wg.Wait()
+
+	snapshot := m.Snapshot()
+	assert.Equal(t, int64(1), snapshot["events.published"])
+	assert.Equal(t, int64(1), snapshot["events.delivered"])
+	assert.Equal(t, int64(1), snapshot["subscribers.active"])
+}
+
+func TestBusMetricsSubscriberCount(t *testing.T) {
+	r := NewRegistry()
+	m := metrics.NewRegistry()
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{
+		PoolWorkers: 10,
+		Metrics:     m,
+	})
+
+	sub1, err := b.Subscribe("caleb", "test-event", func(e Event, offset uint64) error { return nil }, Drop)
+	require.NoError(t, err)
+	sub2, err := b.Subscribe("bray", "test-event", func(e Event, offset uint64) error { return nil }, Drop)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(2), m.Snapshot()["subscribers.active"])
+
+	b.Unsubscribe(sub1.ID)
+	assert.Equal(t, int64(1), m.Snapshot()["subscribers.active"])
+
+	b.Unsubscribe(sub2.ID)
+	assert.Equal(t, int64(0), m.Snapshot()["subscribers.active"])
+}
+
+func TestBusMetricsDLQ(t *testing.T) {
+	r := NewRegistry()
+	m := metrics.NewRegistry()
+	b := NewEventBus(r, utils.NewTestLog(1024), BusOpts{
+		PoolWorkers: 10,
+		Metrics:     m,
+		Dlq:         &DeadLetterQueue{utils.NewTestLog(1024)},
+	})
+
+	_, err := b.Subscribe("caleb", "test-event", failAlwaysDeliverFunc(), Drop)
+	require.NoError(t, err)
+
+	require.NoError(t, b.Publish(NewEvent("test-event", "publisher", nil)))
+
+	require.Eventually(t, func() bool {
+		return m.Snapshot()["events.dlq"] == 1
+	}, time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, int64(1), m.Snapshot()["events.dlq"])
+}
+
+func TestBusMetricsDropped(t *testing.T) {
+	r := NewRegistry()
+	m := metrics.NewRegistry()
+	b := NewEventBus(r, utils.NewTestLog(4096), BusOpts{
+		PoolWorkers: 10,
+		Metrics:     m,
+	})
+
+	block := make(chan struct{})
+	var received atomic.Int32
+
+	_, err := r.Subscribe("caleb", "test-event", func(ev Event, offset uint64) error {
+		<-block
+		received.Add(1)
+		return nil
+	}, Drop, testOnError)
+	require.NoError(t, err)
+
+	for i := range 100 {
+		b.Publish(NewEvent("test-event", "publisher", []byte{byte(i)}))
+	}
+
+	close(block)
+
+	require.Eventually(t, func() bool {
+		return received.Load() >= 1
+	}, time.Second, 10*time.Millisecond)
+
+	assert.Greater(t, m.Snapshot()["events.dropped"], int64(0))
 }
 
 func deliverFuncCounter(count *int, wg *sync.WaitGroup) DeliverFunc {
