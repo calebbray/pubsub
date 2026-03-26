@@ -8,8 +8,8 @@ import (
 	"net"
 	"testing"
 
-	eventlog "pipelines/pkg/event_log"
-	"pipelines/pkg/transport"
+	eventlog "github.com/calebbray/pubsub/pkg/event_log"
+	"github.com/calebbray/pubsub/pkg/transport"
 )
 
 func NewJSONLogger(w io.Writer, opts *slog.HandlerOptions) *slog.Logger {

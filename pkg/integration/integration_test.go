@@ -6,10 +6,10 @@ import (
 	"sync"
 	"testing"
 
-	"pipelines/pkg/rpc"
-	"pipelines/pkg/session"
-	"pipelines/pkg/transport"
-	"pipelines/pkg/utils"
+	"github.com/calebbray/pubsub/pkg/rpc"
+	"github.com/calebbray/pubsub/pkg/session"
+	"github.com/calebbray/pubsub/pkg/transport"
+	"github.com/calebbray/pubsub/pkg/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

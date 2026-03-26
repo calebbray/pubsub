@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"pipelines/pkg/metrics"
-	"pipelines/pkg/transport"
-	"pipelines/pkg/utils"
+	"github.com/calebbray/pubsub/pkg/metrics"
+	"github.com/calebbray/pubsub/pkg/transport"
+	"github.com/calebbray/pubsub/pkg/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

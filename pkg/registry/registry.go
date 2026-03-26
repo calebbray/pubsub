@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"pipelines/pkg/pubsub"
+	"github.com/calebbray/pubsub/pkg/pubsub"
 )
 
 type Store interface {

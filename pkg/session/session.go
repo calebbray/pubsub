@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"pipelines/pkg/transport"
+	"github.com/calebbray/pubsub/pkg/transport"
 
 	"github.com/google/uuid"
 	"golang.org/x/time/rate"

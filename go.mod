@@ -1,4 +1,4 @@
-module pipelines
+module github.com/calebbray/pubsub
 
 go 1.25.0
 

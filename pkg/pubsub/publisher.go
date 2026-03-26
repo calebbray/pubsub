@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	eventlog "pipelines/pkg/event_log"
-	"pipelines/pkg/metrics"
+	eventlog "github.com/calebbray/pubsub/pkg/event_log"
+	"github.com/calebbray/pubsub/pkg/metrics"
 
 	"github.com/google/uuid"
 )

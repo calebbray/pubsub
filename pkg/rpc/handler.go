@@ -8,8 +8,8 @@ import (
 	"net"
 	"time"
 
-	"pipelines/pkg/metrics"
-	"pipelines/pkg/transport"
+	"github.com/calebbray/pubsub/pkg/metrics"
+	"github.com/calebbray/pubsub/pkg/transport"
 )
 
 type HandlerFunc func(payload []byte) ([]byte, error)

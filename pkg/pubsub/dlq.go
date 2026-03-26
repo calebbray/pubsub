@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	eventlog "pipelines/pkg/event_log"
+	eventlog "github.com/calebbray/pubsub/pkg/event_log"
 )
 
 type RetryPolicy struct {

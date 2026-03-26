@@ -5,7 +5,7 @@ import (
 	"net"
 	"sync"
 
-	"pipelines/pkg/transport"
+	"github.com/calebbray/pubsub/pkg/transport"
 )
 
 type Client struct {

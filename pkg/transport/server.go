@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"pipelines/pkg/metrics"
+	"github.com/calebbray/pubsub/pkg/metrics"
 )
 
 type Server struct {

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"pipelines/pkg/metrics"
-	"pipelines/pkg/utils"
+	"github.com/calebbray/pubsub/pkg/metrics"
+	"github.com/calebbray/pubsub/pkg/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

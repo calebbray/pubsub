@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"pipelines/pkg/pubsub"
-	"pipelines/pkg/utils"
+	"github.com/calebbray/pubsub/pkg/pubsub"
+	"github.com/calebbray/pubsub/pkg/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
