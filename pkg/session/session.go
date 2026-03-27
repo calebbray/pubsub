@@ -173,6 +173,8 @@ func (h SessionHandler) handleServerHello(s *Session) error {
 		return err
 	}
 
+	s.clientId = req.ClientID
+
 	res := &HandshakeResponse{}
 
 	var state *SessionState

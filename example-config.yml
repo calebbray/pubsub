@@ -1,0 +1,19 @@
+server:
+  addr: ":8080"
+  auth_token: "${AUTH_TOKEN}"
+  supported_versions:
+    - 1
+  log_level: "info"
+  log_format: "json"
+  log_dir: "data/logs"
+  max_log_size: 33554432 # 32MB
+  registry_path: "data/registry.json"
+  transport:
+    read_timeout: 30s
+    write_timeout: 90s
+  session:
+    ttl: 24h
+    heartbeat_timeout: 90s
+    rate_limit:
+      limit: 100
+      burst_size: 200

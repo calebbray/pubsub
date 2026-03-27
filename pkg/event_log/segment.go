@@ -111,6 +111,10 @@ func (l *SegmentedLog) Read(offset uint64) ([]byte, error) {
 	return s.log.Read(offset - s.baseOffset)
 }
 
+func (l *SegmentedLog) NewIterator(startOffset uint64) *Iterator {
+	return NewIterator(l, startOffset)
+}
+
 func (l *SegmentedLog) rotate(baseOffset uint64) error {
 	logger, err := l.newLogger(baseOffset)
 	if err != nil {

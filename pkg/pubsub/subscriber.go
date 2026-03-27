@@ -7,6 +7,16 @@ import (
 	"github.com/google/uuid"
 )
 
+type SubscriptionRegistry interface {
+	Subscribe(subscriberId, eventType string, fn DeliverFunc, policy SlowSubscriberPolicy, onError OnDeliveryError) (*Subscription, error)
+	Unsubscribe(subscriptionId string) error
+	GetSubscriptions(eventType string) ([]*Subscription, error)
+	GetSubscriptionById(string) *Subscription
+	Ack(subscriptionId string, offset uint64) error
+	Restore(sub *Subscription)
+	Reattach(subscriberId, eventType string, fn DeliverFunc, policy SlowSubscriberPolicy, onError OnDeliveryError) error
+}
+
 type Subscription struct {
 	ID            string `json:"id"`
 	SubscriberId  string `json:"subscriberId"`
@@ -151,7 +161,7 @@ func (r *Registry) Ack(subscriptionId string, offset uint64) error {
 
 func (r *Registry) Reattach(
 	subscriberId, eventType string, fn DeliverFunc,
-	policy SlowSubscriberPolicy, onError func(Delivery, error),
+	policy SlowSubscriberPolicy, onError OnDeliveryError,
 ) error {
 	subs, ok := r.bySubscriber[subscriberId]
 	if !ok {

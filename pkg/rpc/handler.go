@@ -48,10 +48,6 @@ func DefaultHealthChecker(m metrics.MetricsProvider) HealthChecker {
 	return HealthCheck{m}
 }
 
-type healthResponse struct {
-	Status string `json:"status"`
-}
-
 func (s *Server) handleHealth(_ []byte) ([]byte, error) {
 	return json.Marshal(s.HealthChecker.Health())
 }
@@ -80,7 +76,7 @@ func (s *Server) handleReady(_ []byte) ([]byte, error) {
 	return json.Marshal(s.HealthChecker.Ready())
 }
 
-func (s *Server) metricLogMiddleware(route string, h HandlerFunc) (string, HandlerFunc) {
+func (s *Server) MetricLogMiddleware(route string, h HandlerFunc) (string, HandlerFunc) {
 	return route, func(payload []byte) ([]byte, error) {
 		s.metrics[route]++
 		return h(payload)
@@ -127,14 +123,15 @@ func NewServer(opts ServerOpts) *Server {
 		ServerOpts: opts,
 	}
 
-	s.Register(s.metricLogMiddleware("/_admin/health", s.handleHealth))
-	s.Register(s.metricLogMiddleware("/_admin/status", s.handleStatus))
-	s.Register(s.metricLogMiddleware("/_admin/metrics", s.handleMetrics))
-	s.Register(s.metricLogMiddleware("/_admin/ready", s.handleReady))
+	s.Register(s.MetricLogMiddleware("/_admin/health", s.handleHealth))
+	s.Register(s.MetricLogMiddleware("/_admin/status", s.handleStatus))
+	s.Register(s.MetricLogMiddleware("/_admin/metrics", s.handleMetrics))
+	s.Register(s.MetricLogMiddleware("/_admin/ready", s.handleReady))
 
 	return s
 }
 
+// session.HandleConn will call this
 func (s *Server) HandleFrame(w io.Writer, frame []byte) error {
 	msg, err := Decode(frame)
 	if err != nil {
@@ -143,6 +140,12 @@ func (s *Server) HandleFrame(w io.Writer, frame []byte) error {
 		msg.Payload = []byte("internal server error")
 		return transport.WriteFrame(w, Encode(msg))
 	}
+
+	s.Logger.Debug("rpc request received",
+		"method", msg.Method,
+		"req_id", msg.ReqId,
+		"payload", string(msg.Payload),
+	)
 
 	fn, ok := s.handlers[msg.Method]
 	if !ok {
@@ -162,9 +165,18 @@ func (s *Server) HandleFrame(w io.Writer, frame []byte) error {
 
 	msg.Kind = KindResponse
 	msg.Payload = response
+
+	s.Logger.Debug("rpc response dispatched",
+		"method", msg.Method,
+		"req_id", msg.ReqId,
+		"kind", msg.Kind,
+		"payload", string(msg.Payload),
+	)
 	return transport.WriteFrame(w, Encode(msg))
 }
 
+// this is really just a util to implement connHandler so we can test
+// the rpc server in isolation without needing to have an authorized session
 func (s *Server) HandleConn(conn net.Conn) {
 	s.Logger.Debug("rpc connection opened", "remote_addr", conn.RemoteAddr())
 	defer func() {

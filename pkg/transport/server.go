@@ -26,10 +26,9 @@ type Server struct {
 
 type ServerOpts struct {
 	DeadlineConfig
-	Handler    ConnHandler
-	Logger     *slog.Logger
-	ValidToken string
-	Metrics    metrics.MetricsProvider
+	Handler ConnHandler
+	Logger  *slog.Logger
+	Metrics metrics.MetricsProvider
 }
 
 type DeadlineConfig struct {
@@ -60,7 +59,7 @@ func NewServer(addr string, opts ServerOpts) *Server {
 	return s
 }
 
-func (s *Server) Run(cb func(addr string)) error {
+func (s *Server) Run(cb func(string)) error {
 	if err := s.listen(cb); err != nil {
 		return fmt.Errorf("error while listening at (%s): %w", s.addr, err)
 	}
@@ -68,7 +67,7 @@ func (s *Server) Run(cb func(addr string)) error {
 	return nil
 }
 
-func (s *Server) listen(cb func(addr string)) error {
+func (s *Server) listen(cb func(string)) error {
 	var err error
 	s.ln, err = net.Listen("tcp", s.addr)
 	if err != nil {

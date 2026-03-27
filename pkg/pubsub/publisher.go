@@ -42,12 +42,12 @@ type BusOpts struct {
 
 type Bus struct {
 	BusOpts
-	registry *Registry
-	log      *eventlog.Log
+	registry SubscriptionRegistry
+	log      eventlog.EventStore
 	pool     *WorkerPool
 }
 
-func NewEventBus(r *Registry, l *eventlog.Log, opts BusOpts) *Bus {
+func NewEventBus(r SubscriptionRegistry, l eventlog.EventStore, opts BusOpts) *Bus {
 	workers := opts.PoolWorkers
 	if workers == 0 {
 		workers = 3

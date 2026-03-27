@@ -3,14 +3,14 @@ package eventlog
 import "errors"
 
 type Iterator struct {
-	log     *Log
+	log     EventStore
 	currOff uint64
 	prevOff uint64
 	currLog []byte
 	err     error
 }
 
-func NewIterator(log *Log, startOffset uint64) *Iterator {
+func NewIterator(log EventStore, startOffset uint64) *Iterator {
 	return &Iterator{
 		log:     log,
 		currOff: startOffset,

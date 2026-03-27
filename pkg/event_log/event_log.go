@@ -18,6 +18,12 @@ type EventLogger interface {
 	Sync() error
 }
 
+type EventStore interface {
+	Append(data []byte) (uint64, error)
+	Read(offset uint64) ([]byte, error)
+	NewIterator(startOffset uint64) *Iterator
+}
+
 type Log struct {
 	EventLogger
 	size uint64
@@ -83,6 +89,10 @@ func (l *Log) Read(offset uint64) ([]byte, error) {
 	}
 
 	return buf, nil
+}
+
+func (l *Log) NewIterator(startOffset uint64) *Iterator {
+	return NewIterator(l, startOffset)
 }
 
 func (l *Log) ResetSize() {
